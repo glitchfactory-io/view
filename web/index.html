@@ -1,0 +1,1023 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>view</title>
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#e9ecef">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e1012">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/assets/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+@font-face {
+  font-family: "Instrument Sans";
+  src: url(/assets/instrument-sans.woff2) format("woff2-variations"), url(/assets/instrument-sans.woff2) format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+/* The ambient light's color animates smoothly between services. */
+@property --glow {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: transparent;
+}
+
+:root {
+  --bg: #e9ecef;
+  --ink: #12161b;
+  --muted: #66707c;
+  --tile: rgb(255 255 255 / .72);
+  --tile-top: rgb(255 255 255 / .92);
+  --line: rgb(15 23 42 / .075);
+  --tile-shadow: 0 1px 1px rgb(15 23 42 / .04), 0 2px 3px rgb(15 23 42 / .03), 0 14px 28px -18px rgb(15 23 42 / .22);
+  --plate: #ffffff;
+  --plate-line: rgb(15 23 42 / .09);
+  --glow-strength: .21;
+  --grain: .028;
+  --warn: #b25e00;
+  --warn-bg: rgb(245 165 36 / .16);
+  --neutral-c: hsl(220 14% 56%);
+  --track: rgb(15 23 42 / .08);
+  --divider: rgb(15 23 42 / .13);
+  --ok: #1f9d55;
+  --bad: #d13a2f;
+  --amber: #e58f0a;
+  --amber-ink: #a35f00;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1012;
+    --ink: #eceef1;
+    --muted: #8a919c;
+    --tile: rgb(255 255 255 / .035);
+    --tile-top: rgb(255 255 255 / .06);
+    --line: rgb(255 255 255 / .075);
+    --tile-shadow: inset 0 1px 0 rgb(255 255 255 / .045), 0 1px 2px rgb(0 0 0 / .35), 0 18px 36px -24px rgb(0 0 0 / .8);
+    --plate: #f3f4f6;
+    --plate-line: rgb(255 255 255 / .06);
+    --glow-strength: .18;
+    --grain: .03;
+    --warn: #f6c26b;
+    --warn-bg: rgb(245 165 36 / .12);
+    --neutral-c: hsl(220 16% 62%);
+    --track: rgb(255 255 255 / .08);
+    --divider: rgb(255 255 255 / .11);
+    --ok: #3fcf8e;
+    --bad: #ff7a6e;
+    --amber: #f2a93b;
+    --amber-ink: #f6c26b;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; background: var(--bg); }
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
+}
+
+/* ---------- ambient light ---------- */
+.ambient {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+.glow {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 410px;
+  height: 410px;
+  border-radius: 15%;
+  background: radial-gradient(closest-side, var(--glow), transparent);
+  opacity: 0;
+  will-change: transform, opacity;
+  transition: --glow .5s ease, transform .65s cubic-bezier(.2,.8,.2,1), opacity .45s ease;
+}
+.glow.on { opacity: var(--glow-strength); }
+/* fine grain: gives the surfaces some tooth and keeps the light from banding */
+.ambient::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: var(--grain);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---------- layout ---------- */
+.wrap {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: 1168px;
+  margin: 0 auto;
+  padding: clamp(28px, 7vh, 72px) 24px 48px;
+}
+.layout { flex: 1; }
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 4px 26px;
+}
+h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 620;
+  letter-spacing: -.02em;
+  line-height: 1.2;
+}
+
+/* type-to-search readout */
+.find {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.find .q {
+  color: var(--ink);
+  font-weight: 560;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filtering .find .q::after {
+  content: "";
+  display: inline-block;
+  width: 1.5px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -.16em;
+  background: currentColor;
+  animation: caret 1s steps(1) infinite;
+}
+@keyframes caret { 50% { opacity: 0; } }
+
+.notice {
+  margin: 0 4px 22px;
+  padding: 11px 16px;
+  border-radius: 14px;
+  background: var(--warn-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--warn) 22%, transparent);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.notice[hidden] { display: none; }
+.notice strong { color: var(--warn); font-weight: 620; }
+
+/* ---------- layout with sidebar ---------- */
+.wrap.has-side { max-width: 1400px; }
+.has-side .layout {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 288px;
+  gap: 56px;
+  align-items: start;
+}
+/* a hairline between tiles and sidebar that fades out at both ends */
+.has-side .layout::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  bottom: 0;
+  right: calc(288px + 28px);
+  width: 1px;
+  background: linear-gradient(to bottom, transparent, var(--divider) 7%, var(--divider) 45%, transparent 96%);
+  pointer-events: none;
+}
+.side { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 24px; }
+.side[hidden] { display: none; }
+
+.panel {
+  padding: 18px 20px 20px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, var(--tile-top), var(--tile));
+  box-shadow: inset 0 0 0 1px var(--line), var(--tile-shadow);
+  transition: background .3s ease, box-shadow .3s ease;
+}
+.panel h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  font-weight: 560;
+  color: var(--muted);
+}
+.count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin: 0;
+  line-height: 1.1;
+}
+.count span { white-space: nowrap; }
+.count b {
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+}
+.count i {
+  font-style: normal;
+  font-size: 15px;
+  font-weight: 520;
+  color: var(--muted);
+}
+.when { margin: 8px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.panel.soon .count b { color: var(--amber-ink); }
+
+/* the week at a glance: the window in amber, a line for now */
+.week { margin-top: 18px; }
+.week .bar {
+  position: relative;
+  height: 6px;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+.week .bar > i { border-radius: 3px; background: var(--track); }
+.week .win, .week .now {
+  position: absolute;
+  left: calc((100% - 18px) / 7 * (var(--k) + var(--f)) + 3px * var(--k));
+}
+.week .win {
+  top: -2px;
+  height: 10px;
+  min-width: 4px;
+  width: calc((100% - 18px) / 7 * var(--len));
+  border-radius: 3px;
+  background: var(--amber);
+}
+.week .now {
+  top: -5px;
+  width: 2px;
+  height: 16px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--ink);
+}
+.week .days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+.week .days .on { color: var(--amber-ink); font-weight: 650; }
+
+.panel.live {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--amber) 16%, var(--tile-top)), color-mix(in oklab, var(--amber) 6%, var(--tile)));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--amber) 45%, var(--line)), var(--tile-shadow);
+}
+.panel.live h2 { color: var(--amber-ink); }
+.pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--amber);
+  animation: pulse 2s ease-out infinite;
+}
+.pulse[hidden] { display: none; }
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--amber) 55%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 7px transparent; }
+}
+
+.panel[hidden] { display: none; }
+
+/* ---------- services card ---------- */
+.svcs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.svc {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: baseline;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.svc .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  align-self: center;
+  background: var(--track);
+}
+.svc.up .dot { background: var(--ok); }
+.svc.slow .dot, .svc.cert-warn .dot { background: var(--amber); }
+.svc.cert-bad .dot { background: var(--bad); }
+.svc.down .dot { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in oklab, var(--bad) 22%, transparent); }
+.svc .sname { font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc .sstate { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.svc.slow .sstate { color: var(--amber-ink); }
+.svc.down .sstate { color: var(--bad); font-weight: 600; }
+.svc .sdetail {
+  grid-column: 2 / -1;
+  margin: 1px 0 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.svc .sdetail.warn { color: var(--amber-ink); }
+.svc .sdetail.bad { color: var(--bad); }
+
+/* ---------- network card ---------- */
+.neterr { margin: 0; font-size: 13px; line-height: 1.45; color: var(--amber-ink); }
+.neterr[hidden] { display: none; }
+.facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.facts[hidden] { display: none; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+.facts dd span { display: block; }
+.facts small { font-size: 12px; color: var(--muted); margin-left: 6px; }
+.facts .new { color: var(--amber-ink); }
+.foot { margin: 14px 0 0; font-size: 12px; color: var(--muted); }
+
+/* a narrow browser window: the sidebar moves below the tiles */
+@media (max-width: 960px) {
+  .has-side .layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .has-side .layout::before { display: none; }
+  .side { position: static; }
+}
+
+/* ---------- tiles ---------- */
+.grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(188px, 1fr));
+  gap: 14px;
+}
+.grid > li { min-width: 0; }
+
+.tile {
+  --c: var(--neutral-c);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  aspect-ratio: 7 / 5;
+  padding: 18px 18px 16px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, var(--tile-top), var(--tile));
+  box-shadow: inset 0 0 0 1px var(--line), var(--tile-shadow);
+  color: inherit;
+  text-decoration: none;
+  outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform .32s cubic-bezier(.2,1.4,.4,1), box-shadow .25s ease, background .25s ease, opacity .2s ease, filter .2s ease;
+}
+.tile:hover, .tile.best, .tile:focus-visible {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--c) 9%, var(--tile-top)), color-mix(in oklab, var(--c) 3%, var(--tile)));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--c) 50%, var(--line)), var(--tile-shadow);
+}
+.tile:focus-visible { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--c) 50%, var(--line)), 0 0 0 3px color-mix(in oklab, var(--c) 55%, transparent); }
+.tile:active, .tile.pressed {
+  transform: scale(.965);
+  transition-duration: .08s;
+}
+
+.plate {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--plate);
+  box-shadow: 0 0 0 1px var(--plate-line), 0 3px 8px -3px rgb(0 0 0 / .28);
+  overflow: hidden;
+  transition: transform .4s cubic-bezier(.2,1.6,.4,1);
+}
+.tile:hover .plate, .tile.best .plate { transform: scale(1.06); }
+.plate img { width: 30px; height: 30px; object-fit: contain; }
+.plate.bleed img { width: 100%; height: 100%; object-fit: cover; }
+.plate.mono {
+  background: linear-gradient(150deg, hsl(var(--h) 62% 64%), hsl(calc(var(--h) + 26) 56% 46%));
+  color: #fff;
+  font-size: 19px;
+  font-weight: 650;
+  text-shadow: 0 1px 2px rgb(0 0 0 / .18);
+}
+/* keep an image hidden until it has loaded, so tiles never flash a broken icon */
+.plate img:not(.ready) { opacity: 0; }
+.plate img.ready { animation: fade .2s ease; }
+@keyframes fade { from { opacity: 0; } }
+
+.meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.name {
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.host {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.key {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  min-width: 21px;
+  height: 21px;
+  padding: 0 6px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 11.5px;
+  font-weight: 560;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .tile:hover .key, .tile:focus-visible .key { opacity: 1; }
+}
+.filtering .key { display: none; }
+
+.filtering .tile.dim { opacity: .26; filter: saturate(.3); }
+
+/* a tile that just appeared after the config changed */
+@keyframes arrive { from { opacity: 0; transform: translateY(6px) scale(.97); } }
+.tile.new { animation: arrive .4s cubic-bezier(.2,.8,.2,1); }
+
+.empty {
+  grid-column: 1 / -1;
+  padding: 4px;
+  color: var(--muted);
+  font-size: 15.5px;
+  line-height: 1.55;
+  max-width: 50ch;
+}
+.empty code { font: inherit; font-weight: 600; color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0s !important; animation: none !important; }
+  .tile:hover .plate, .tile.best .plate { transform: none; }
+}
+</style>
+</head>
+<body>
+<div class="ambient" aria-hidden="true"><div class="glow" id="glow"></div></div>
+<div class="wrap" id="app">
+  <header>
+    <h1 id="title">view</h1>
+    <div class="find" id="find" aria-live="polite"><span class="q" id="q"></span><span id="hint">Type to search</span></div>
+  </header>
+  <p class="notice" id="notice" role="status" hidden></p>
+  <div class="layout">
+    <main>
+      <ul class="grid" id="grid"></ul>
+    </main>
+    <aside class="side" id="side" hidden>
+      <section class="panel" id="maint" hidden>
+        <h2><span class="pulse" id="m-pulse" hidden></span><span id="m-head">Maintenance starts in</span></h2>
+        <p class="count" id="m-count"></p>
+        <p class="when" id="m-when"></p>
+        <div class="week" aria-hidden="true">
+          <div class="bar"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><span class="win" id="m-win"></span><span class="now" id="m-now"></span></div>
+          <div class="days" id="m-days"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+        </div>
+      </section>
+      <section class="panel" id="svc" hidden>
+        <h2>Services</h2>
+        <ul class="svcs" id="s-list"></ul>
+        <p class="foot" id="s-foot"></p>
+      </section>
+      <section class="panel" id="net" hidden>
+        <h2>Network</h2>
+        <p class="neterr" id="n-err" hidden></p>
+        <dl class="facts" id="n-facts"></dl>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script id="board-data" type="application/json">/*BOARD*/</script>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const app = $("app"), grid = $("grid"), titleEl = $("title"), notice = $("notice");
+  const glow = $("glow"), qEl = $("q"), hintEl = $("hint");
+  const NEUTRAL = getComputedStyle(document.documentElement).getPropertyValue("--neutral-c").trim() || "hsl(220 14% 58%)";
+
+  let board, shown = "", query = "", best = -1;
+  try { board = JSON.parse($("board-data").textContent); } catch { board = null; }
+
+  /* ---------- helpers ---------- */
+  const hue = (s) => { let h = 7; for (const c of s) h = (h * 31 + c.codePointAt(0)) >>> 0; return h % 360; };
+  const hostOf = (u) => { try { return new URL(u).host.replace(/^www\./, ""); } catch { return u; } };
+  const tiles = () => grid.querySelectorAll(".tile");
+
+  // Read an icon's main color, and whether it's a full-square app icon.
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 24;
+  const cx = cv.getContext("2d", { willReadFrequently: true });
+  function analyze(img) {
+    try {
+      cx.clearRect(0, 0, 24, 24);
+      cx.drawImage(img, 0, 0, 24, 24);
+      const d = cx.getImageData(0, 0, 24, 24).data;
+      const side = [0, 0, 0, 0];
+      let R = 0, G = 0, B = 0, W = 0;
+      for (let y = 0; y < 24; y++) for (let x = 0; x < 24; x++) {
+        const i = (y * 24 + x) * 4, r = d[i], g = d[i + 1], b = d[i + 2], a = d[i + 3] / 255;
+        if (x > 3 && x < 20) { if (y === 0) side[0] += a; if (y === 23) side[2] += a; }
+        if (y > 3 && y < 20) { if (x === 0) side[3] += a; if (x === 23) side[1] += a; }
+        if (a < .5) continue;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), s = mx ? (mx - mn) / mx : 0;
+        const w = a * (s * s + .015) * (mx < 45 ? .05 : 1);
+        R += r * w; G += g * w; B += b * w; W += w;
+      }
+      const bleed = Math.min(...side) / 16 > .9;
+      if (!W) return { bleed, color: null };
+      let r = R / W / 255, g = G / W / 255, b = B / W / 255;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, dlt = mx - mn;
+      let h = 0, s = 0;
+      if (dlt) {
+        s = dlt / (1 - Math.abs(2 * l - 1));
+        h = mx === r ? ((g - b) / dlt) % 6 : mx === g ? (b - r) / dlt + 2 : (r - g) / dlt + 4;
+        h = (h * 60 + 360) % 360;
+      }
+      if (s < .12) return { bleed, color: null }; // black, white or grey logo: keep the light neutral
+      return { bleed, color: `hsl(${h.toFixed(0)} ${Math.max(s, .6) * 100}% ${Math.min(Math.max(l, .5), .62) * 100}%)` };
+    } catch { return { bleed: false, color: null }; }
+  }
+
+  /* ---------- tiles ---------- */
+  function monogram(plate, t, a) {
+    const h = hue(t.name + t.url);
+    plate.className = "plate mono";
+    plate.style.setProperty("--h", h);
+    plate.textContent = ([...t.name.trim()][0] || "?").toUpperCase();
+    a.dataset.c = `hsl(${h} 72% 60%)`;
+    a.style.setProperty("--c", a.dataset.c);
+  }
+
+  function tileEl(t, i, isNew) {
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.className = isNew ? "tile new" : "tile";
+    a.href = t.url;
+    a.rel = "noreferrer";
+    a.draggable = false;
+    a.dataset.i = i;
+    if (t.source) a.title = "Added from " + t.source;
+
+    const plate = document.createElement("span");
+    plate.className = "plate";
+    const img = new Image();
+    img.alt = "";
+    img.decoding = "async";
+    img.draggable = false;
+    img.onload = () => {
+      const { bleed, color } = analyze(img);
+      plate.classList.toggle("bleed", bleed);
+      if (color) { a.dataset.c = color; a.style.setProperty("--c", color); if (glowTile === a) glowTo(a); }
+      img.classList.add("ready");
+    };
+    img.onerror = () => monogram(plate, t, a);
+    img.src = "/api/icon?url=" + encodeURIComponent(t.icon || t.url);
+    plate.append(img);
+
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = t.name;
+    const host = document.createElement("span");
+    host.className = "host";
+    host.textContent = hostOf(t.url);
+    meta.append(name, host);
+
+    const key = document.createElement("span");
+    key.className = "key";
+    key.setAttribute("aria-hidden", "true");
+    if (i < 9) key.textContent = String(i + 1); else key.hidden = true;
+
+    a.append(plate, meta, key);
+    li.append(a);
+    return li;
+  }
+
+  function render(next) {
+    // The tiles are only rebuilt when they change, not when the sidebar does.
+    const json = JSON.stringify([next.title, next.tiles, next.error, next.discoveryError]);
+    const prev = board;
+    board = next;
+    tickSidebar();
+    if (json === shown) return;
+    const first = shown === "";
+    const before = new Set(first ? [] : prev.tiles.map((t) => t.url + "\n" + t.name));
+    shown = json;
+
+    titleEl.textContent = board.title || "view";
+    document.title = titleEl.textContent;
+
+    if (board.error) {
+      const s = document.createElement("strong");
+      s.textContent = "The tile list has a mistake. ";
+      notice.replaceChildren(s, (board.tiles.length ? "Showing the last version that worked. " : "") + "Problem: " + board.error);
+      notice.hidden = false;
+    } else if (board.discoveryError) {
+      const s = document.createElement("strong");
+      s.textContent = "Can't read the labelled routes. ";
+      notice.replaceChildren(s, "Their tiles may be missing or out of date. Problem: " + board.discoveryError);
+      notice.hidden = false;
+    } else {
+      notice.hidden = true;
+    }
+
+    glowOff();
+    const frag = document.createDocumentFragment();
+    board.tiles.forEach((t, i) => frag.append(tileEl(t, i, !first && !before.has(t.url + "\n" + t.name))));
+    if (!board.tiles.length) {
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.innerHTML = "No sites yet. Add them to <code>tiles</code> in the config, or label an HTTPRoute, and they show up here by themselves.";
+      frag.append(li);
+    }
+    grid.replaceChildren(frag);
+    applyFilter();
+  }
+
+  /* ---------- maintenance window ---------- */
+  const side = $("side"), maint = $("maint");
+  const mHead = $("m-head"), mPulse = $("m-pulse"), mCount = $("m-count"), mWhen = $("m-when");
+  const mWin = $("m-win"), mNow = $("m-now"), mDays = $("m-days");
+  const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const fmts = new Map();
+  // The date and time in the window's own timezone, whatever timezone this device is in.
+  function zoned(ts, tz) {
+    let f = fmts.get(tz);
+    if (!f) {
+      f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", weekday: "short", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" });
+      fmts.set(tz, f);
+    }
+    const o = {};
+    for (const p of f.formatToParts(ts)) o[p.type] = p.value;
+    return { y: +o.year, mo: +o.month, d: +o.day, h: +o.hour % 24, mi: +o.minute, s: +o.second, wd: WD.indexOf(o.weekday) };
+  }
+  const offsetAt = (ts, tz) => { const p = zoned(ts, tz); return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - Math.floor(ts / 1000) * 1000; };
+  // A wall-clock time in the window's timezone as a real moment (summer time included).
+  function instant(y, mo, d, minutes, tz) {
+    const guess = Date.UTC(y, mo - 1, d, 0, minutes);
+    return guess - offsetAt(guess - offsetAt(guess, tz), tz);
+  }
+  function nextWindow(m, now) {
+    const p = zoned(now, m.timezone), crosses = m.end <= m.start;
+    for (let k = -1; k <= 7; k++) {
+      if ((p.wd + k + 7) % 7 !== m.weekday) continue;
+      const start = instant(p.y, p.mo, p.d + k, m.start, m.timezone);
+      const end = instant(p.y, p.mo, p.d + k + (crosses ? 1 : 0), m.end, m.timezone);
+      if (end > now) return { start, end };
+    }
+    return null;
+  }
+  function duration(ms) {
+    const t = Math.max(1, Math.ceil(ms / 60000));
+    const d = Math.floor(t / 1440), h = Math.floor((t % 1440) / 60), mi = t % 60;
+    const days = [d, d === 1 ? "day" : "days"];
+    if (d) return h ? [days, [h, "h"]] : [days];
+    if (h) return mi ? [[h, "h"], [mi, "min"]] : [[h, "h"]];
+    return [[mi, "min"]];
+  }
+  const hm = (min) => String(Math.floor(min / 60) % 24).padStart(2, "0") + ":" + String(min % 60).padStart(2, "0");
+  const monIdx = (wd) => (wd + 6) % 7;
+  const dateFmt = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "short", timeZone: "UTC" });
+
+  function tickMaintenance() {
+    const m = board.maintenance;
+    maint.hidden = !m;
+    if (!m) return;
+    const now = Date.now(), w = nextWindow(m, now);
+    if (!w) return;
+    const live = w.start <= now;
+    const left = (live ? w.end : w.start) - now;
+
+    maint.classList.toggle("live", live);
+    maint.classList.toggle("soon", !live && left < 864e5);
+    mPulse.hidden = !live;
+    mHead.textContent = live ? "Maintenance ends in" : "Maintenance starts in";
+    mCount.replaceChildren(...duration(left).map(([n, unit]) => {
+      const span = document.createElement("span"), b = document.createElement("b"), i = document.createElement("i");
+      b.textContent = n;
+      i.textContent = unit;
+      span.append(b, " ", i);
+      return span;
+    }));
+
+    const ps = zoned(w.start, m.timezone), pn = zoned(now, m.timezone);
+    const days = Math.round((Date.UTC(ps.y, ps.mo - 1, ps.d) - Date.UTC(pn.y, pn.mo - 1, pn.d)) / 864e5);
+    const day = days === 0 ? "Today" : days === 1 ? "Tomorrow" : dateFmt.format(Date.UTC(ps.y, ps.mo - 1, ps.d, 12)).replace(",", "");
+    let zone = "";
+    try {
+      if (Intl.DateTimeFormat().resolvedOptions().timeZone !== m.timezone) {
+        const z = new Intl.DateTimeFormat("en-GB", { timeZone: m.timezone, timeZoneName: "short" }).formatToParts(w.start).find((x) => x.type === "timeZoneName");
+        if (z) zone = " " + z.value;
+      }
+    } catch {}
+    mWhen.textContent = `${live ? "Today" : day}, ${hm(m.start)}–${hm(m.end)}${zone}`;
+
+    const len = ((m.end <= m.start ? m.end + 1440 : m.end) - m.start) / 1440;
+    const k = monIdx(m.weekday), f = m.start / 1440;
+    mWin.style.setProperty("--k", k);
+    mWin.style.setProperty("--f", f);
+    mWin.style.setProperty("--len", Math.min(len, 7 - k - f));
+    mNow.style.setProperty("--k", monIdx(pn.wd));
+    mNow.style.setProperty("--f", (pn.h * 60 + pn.mi) / 1440);
+    [...mDays.children].forEach((el, i) => el.classList.toggle("on", i === k));
+  }
+
+  /* ---------- services card ---------- */
+  const svc = $("svc"), sList = $("s-list"), sFoot = $("s-foot");
+  const make = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const clockFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const dayClockFmt = new Intl.DateTimeFormat("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  let svcShown = "";
+
+  function sinceText(iso) {
+    const t = Date.parse(iso);
+    return "since " + (Date.now() - t < 864e5 ? clockFmt : dayClockFmt).format(t).replace(",", "");
+  }
+  function ago(iso) {
+    const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+    return `${Math.floor(s / 3600)} h ago`;
+  }
+  function certText(it) {
+    const d = it.certDays;
+    return d === 0 ? "certificate expires today" : d === 1 ? "certificate expires tomorrow" : `certificate expires in ${d} days`;
+  }
+
+  function renderServices() {
+    const st = board.services;
+    svc.hidden = !st;
+    if (!st) return;
+    // rebuilt every tick, since "down since" and "checked" change with time
+    const key = JSON.stringify(st) + Math.floor(Date.now() / 60000);
+    if (key !== svcShown) {
+      svcShown = key;
+      sList.replaceChildren(...st.items.map((it) => {
+        const li = make("li", "svc " + it.state + (it.certLevel ? " cert-" + it.certLevel : ""));
+        li.title = it.target;
+        const state = it.state === "up" ? `${it.ms} ms`
+          : it.state === "slow" ? `slow, ${(it.ms / 1000).toFixed(1)} s`
+          : it.state === "down" ? "down" : "checking";
+        li.append(make("span", "dot"), make("span", "sname", it.name), make("span", "sstate", state));
+        if (it.state === "down") {
+          li.append(make("p", "sdetail", `${sinceText(it.since)}: ${it.detail}`));
+        } else if (it.certLevel) {
+          li.append(make("p", "sdetail " + it.certLevel, certText(it)));
+        }
+        return li;
+      }));
+    }
+    sFoot.textContent = "Checked " + ago(st.checked) + ", from inside the cluster";
+  }
+
+  /* ---------- network card ---------- */
+  const net = $("net"), nErr = $("n-err"), nFacts = $("n-facts");
+  let netShown = "";
+
+  function factRows(label, items, emptyText, line) {
+    const dd = make("dd");
+    if (!items.length) dd.append(make("span", "", emptyText));
+    items.slice(0, 8).forEach((it) => dd.append(line(it)));
+    if (items.length > 8) dd.append(make("span", "", `and ${items.length - 8} more`));
+    return [make("dt", "", label), dd];
+  }
+
+  function renderNetwork() {
+    const n = board.network;
+    net.hidden = !n;
+    if (!n) return;
+    const key = JSON.stringify(n);
+    if (key === netShown) return;
+    netShown = key;
+    nErr.hidden = !n.error;
+    nFacts.hidden = !!n.error;
+    if (n.error) {
+      nErr.textContent = "Can't read the cluster: " + n.error;
+      return;
+    }
+    nFacts.replaceChildren(
+      ...factRows("Ingress", n.ingress, "No gateway address yet", (it) => {
+        const sp = make("span", "", it.ip);
+        if (it.node) sp.append(make("small", "", it.node));
+        sp.title = "Gateway " + it.gateway;
+        return sp;
+      }),
+      ...factRows("Egress", n.egress, "No nodes found", (it) => {
+        const sp = make("span", "", it.ip);
+        sp.append(make("small", it.new ? "new" : "", it.new ? "new this week" : it.node));
+        return sp;
+      }),
+    );
+  }
+
+  function tickSidebar() {
+    const on = !!(board.maintenance || board.services || board.network);
+    app.classList.toggle("has-side", on);
+    side.hidden = !on;
+    tickMaintenance();
+    renderServices();
+    renderNetwork();
+  }
+  setInterval(tickSidebar, 15000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) tickSidebar(); });
+
+  /* ---------- ambient light that follows the pointer ---------- */
+  let glowTile = null, hoverTile = null, glowOn = false;
+  function glowTo(tile) {
+    glowTile = tile;
+    const r = tile.getBoundingClientRect();
+    const half = glow.offsetWidth / 2;
+    const pos = `translate(${(r.left + r.width / 2 - half).toFixed(1)}px, ${(r.top + r.height / 2 - half).toFixed(1)}px)`;
+    glow.style.setProperty("--glow", tile.dataset.c || NEUTRAL);
+    if (!glowOn) {
+      glow.style.transition = "none";
+      glow.style.transform = pos;
+      glow.offsetWidth; // apply the jump before fading in
+      glow.style.transition = "";
+      glow.classList.add("on");
+      glowOn = true;
+    } else {
+      glow.style.transform = pos;
+    }
+  }
+  function glowOff() { glowTile = null; glowOn = false; glow.classList.remove("on"); }
+  function glowRest() {
+    const t = hoverTile || (query && best >= 0 ? tiles()[best] : null) || (document.activeElement && document.activeElement.closest && document.activeElement.closest(".tile"));
+    t ? glowTo(t) : glowOff();
+  }
+
+  grid.addEventListener("pointerover", (e) => {
+    const t = e.target.closest(".tile");
+    if (!t || t === hoverTile) return;
+    hoverTile = t;
+    glowTo(t);
+    preconnect(t.href);
+  });
+  grid.addEventListener("pointerleave", () => { hoverTile = null; glowRest(); });
+  grid.addEventListener("focusin", (e) => { const t = e.target.closest(".tile"); if (t) glowTo(t); });
+  grid.addEventListener("focusout", () => setTimeout(glowRest, 0));
+  let raf = 0;
+  const follow = () => { if (glowTile && !raf) raf = requestAnimationFrame(() => { raf = 0; glowTile && glowTo(glowTile); }); };
+  addEventListener("scroll", follow, { passive: true });
+  addEventListener("resize", follow);
+
+  // Start the connection to a site while it's being pointed at, so it opens faster.
+  const warmed = new Set();
+  function preconnect(href) {
+    try {
+      const o = new URL(href).origin;
+      if (warmed.has(o)) return;
+      warmed.add(o);
+      const l = document.createElement("link");
+      l.rel = "preconnect";
+      l.href = o;
+      document.head.append(l);
+    } catch {}
+  }
+
+  /* ---------- type to search ---------- */
+  function score(t, q) {
+    const n = t.name.toLowerCase();
+    if (n.startsWith(q)) return 4;
+    if (n.split(/[\s\-_.]+/).some((w) => w.startsWith(q))) return 3;
+    if (n.includes(q)) return 2;
+    if (hostOf(t.url).toLowerCase().includes(q)) return 1;
+    return 0;
+  }
+  function applyFilter() {
+    const els = tiles();
+    app.classList.toggle("filtering", !!query);
+    best = -1;
+    if (!query) {
+      els.forEach((el) => el.classList.remove("dim", "best"));
+      qEl.textContent = "";
+      hintEl.textContent = board.tiles.length ? "Type to search" : "";
+      return;
+    }
+    const q = query.toLowerCase();
+    let top = 0;
+    board.tiles.forEach((t, i) => {
+      const s = score(t, q);
+      els[i].classList.toggle("dim", !s);
+      els[i].classList.remove("best");
+      if (s > top) { top = s; best = i; }
+    });
+    qEl.textContent = query;
+    if (best >= 0) {
+      els[best].classList.add("best");
+      hintEl.textContent = "Enter opens " + board.tiles[best].name;
+      if (!hoverTile) glowTo(els[best]);
+    } else {
+      hintEl.textContent = "No match";
+      if (!hoverTile) glowOff();
+    }
+  }
+  function setQuery(q) { query = q; applyFilter(); }
+
+  function open(i, newTab) {
+    const t = board.tiles[i], el = tiles()[i];
+    if (!t || !el) return;
+    el.classList.add("pressed");
+    glowTo(el);
+    if (newTab) {
+      window.open(t.url, "_blank", "noopener");
+      setTimeout(() => el.classList.remove("pressed"), 140);
+    } else {
+      location.href = t.url;
+    }
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.isComposing) return;
+    const mod = e.ctrlKey || e.metaKey;
+    if (e.key === "Enter" && query) {
+      if (best >= 0) open(best, mod || e.shiftKey);
+      e.preventDefault();
+      return;
+    }
+    if (mod || e.altKey) return;
+    if (e.key === "Escape") { if (query) { setQuery(""); e.preventDefault(); } return; }
+    if (e.key === "Backspace") { if (query) { setQuery(query.slice(0, -1)); e.preventDefault(); } return; }
+    // 1–9 open a tile (e.code, so Shift+1 still counts as 1 on every layout)
+    const digit = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
+    if (!query && digit) { open(+digit[1] - 1, e.shiftKey); e.preventDefault(); return; }
+    if (e.key.length === 1 && (query || e.key.trim())) {
+      if (query.length < 40) setQuery(query + e.key);
+      e.preventDefault();
+    }
+  });
+  addEventListener("pageshow", () => {
+    tiles().forEach((el) => el.classList.remove("pressed"));
+    if (query) setQuery("");
+    hoverTile = null;
+    glowRest();
+  });
+
+  /* ---------- first paint + live updates when the config changes ---------- */
+  render(board && Array.isArray(board.tiles) ? board : { title: "view", tiles: [] });
+
+  if ("EventSource" in window) {
+    const es = new EventSource("/api/events");
+    es.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch {} };
+  } else {
+    document.addEventListener("visibilitychange", async () => {
+      if (document.hidden) return;
+      try { render(await (await fetch("/api/board", { cache: "no-store" })).json()); } catch {}
+    });
+  }
+})();
+</script>
+</body>
+</html>

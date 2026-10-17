@@ -1,0 +1,93 @@
+{{- if .Values.rbac.create }}
+# Read-only access for the network card. Nothing can be changed, and Secrets can't be read.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "view.clusterName" . }}-network-reader
+  labels:
+    {{- include "view.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["nodes", "services"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "view.clusterName" . }}-network-reader
+  labels:
+    {{- include "view.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "view.clusterName" . }}-network-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "view.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Only leases, only in this namespace: which node announces each gateway IP.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "view.clusterName" . }}-l2-leases
+  namespace: {{ .Values.rbac.leaseNamespace }}
+  labels:
+    {{- include "view.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "view.clusterName" . }}-l2-leases
+  namespace: {{ .Values.rbac.leaseNamespace }}
+  labels:
+    {{- include "view.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "view.clusterName" . }}-l2-leases
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "view.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- $discovery := .Values.config.discovery }}
+{{- if kindIs "map" $discovery }}
+{{- if ne (toString (get $discovery "enabled")) "false" }}
+---
+# Only with config.discovery: read HTTPRoutes, to turn the labelled ones into tiles.
+# RBAC can't filter by label, so this covers all routes (they hold no secrets).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "view.clusterName" . }}-route-reader
+  labels:
+    {{- include "view.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "view.clusterName" . }}-route-reader
+  labels:
+    {{- include "view.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "view.clusterName" . }}-route-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "view.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}

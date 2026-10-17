@@ -1,0 +1,94 @@
+# Deploying view with Flux, straight from the chart on GitHub's registry (OCI).
+# Copy this into your GitOps repository and adjust the values.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: view
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: view
+  namespace: view
+spec:
+  interval: 1h
+  url: oci://ghcr.io/glitchfactory-io/charts/view
+  ref:
+    # New chart versions in this range are rolled out automatically.
+    semver: ">=0.1.0 <1.0.0"
+  layerSelector:
+    mediaType: "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
+    operation: copy
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: view
+  namespace: view
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: view
+  values:
+    httpRoute:
+      enabled: true
+      hostnames:
+        - view.example.com
+      parentRefs:
+        - name: gateway
+          namespace: network
+          sectionName: https
+
+    config:
+      title: Platform
+
+      tiles:
+        - name: Grafana
+          url: https://grafana.example.com
+        - name: Argo CD
+          url: https://argocd.example.com
+        - name: GitLab
+          url: https://gitlab.example.com
+        - name: Docs
+          url: https://docs.example.com
+
+      # Plus a tile for every HTTPRoute labelled view.glitchfactory.io/enabled: "true".
+      discovery:
+        enabled: true
+
+      maintenance:
+        day: tuesday
+        from: "18:00"
+        to: "22:00"
+        timezone: Europe/Berlin
+
+      platform:
+        certWarnDays: 21
+        services:
+          - name: GitLab
+            url: https://gitlab.example.com/-/health
+            expect: 200
+          - name: Registry
+            url: https://registry.example.com/v2/
+          - name: LDAP
+            tcp: ldap.example.com:636
+            tls: true
+
+# A route that shows up as a tile. Only the label is needed; the annotations
+# are optional. The label value has to be the string "true", quoted.
+# apiVersion: gateway.networking.k8s.io/v1
+# kind: HTTPRoute
+# metadata:
+#   name: grafana
+#   namespace: monitoring
+#   labels:
+#     view.glitchfactory.io/enabled: "true"
+#   annotations:
+#     view.glitchfactory.io/name: Grafana
+#     view.glitchfactory.io/url: https://grafana.example.com/dashboards
+# spec:
+#   hostnames:
+#     - grafana.example.com
+#   ...

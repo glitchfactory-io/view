@@ -1,0 +1,19 @@
+apiVersion: v2
+name: view
+description: A calm, read-only start page for Kubernetes. Tiles from config and from labelled HTTPRoutes, a maintenance countdown, service checks and network facts.
+type: application
+# The chart's own version. Keep it in step with appVersion (without the "v").
+version: 0.1.0
+# The image tag this chart deploys by default.
+appVersion: "v0.1.0"
+home: https://github.com/glitchfactory-io/view
+sources:
+  - https://github.com/glitchfactory-io/view
+keywords:
+  - start-page
+  - dashboard
+  - homelab
+  - gateway-api
+maintainers:
+  - name: glitchfactory-io
+    url: https://github.com/glitchfactory-io

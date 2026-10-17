@@ -1,0 +1,5 @@
+# helm package output
+*.tgz
+dist/
+# local runs (CACHE_DIR=./cache)
+cache/

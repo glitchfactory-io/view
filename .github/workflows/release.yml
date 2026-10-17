@@ -1,0 +1,69 @@
+# Push a tag like v0.1.0 to publish that version:
+#   image  ghcr.io/glitchfactory-io/view:v0.1.0      (amd64 + arm64)
+#   chart  oci://ghcr.io/glitchfactory-io/charts/view  version 0.1.0
+# plus a GitHub release with generated notes.
+# The tag has to match version/appVersion in charts/view/Chart.yaml.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write   # the GitHub release
+  packages: write   # image and chart on ghcr.io
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/view
+  CHARTS: oci://ghcr.io/${{ github.repository_owner }}/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag matches the chart
+        run: |
+          version=$(yq '.version' charts/view/Chart.yaml)
+          app=$(yq '.appVersion' charts/view/Chart.yaml)
+          if [ "$GITHUB_REF_NAME" != "v$version" ] || [ "$app" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, Chart.yaml version $version, appVersion $app: they must match"
+            exit 1
+          fi
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Image first: anyone following the chart's version range gets the new
+      # chart right away, so its image has to exist by then.
+      - name: Image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Containerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:${{ github.ref_name }}
+
+      - uses: azure/setup-helm@v5
+      - name: Chart
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package charts/view --destination dist
+          helm push dist/view-*.tgz "$CHARTS"
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/view-*.tgz --generate-notes --verify-tag

@@ -1,0 +1,13 @@
+view {{ .Chart.AppVersion }} is installed in namespace {{ .Release.Namespace }}.
+{{- if and .Values.httpRoute.enabled .Values.httpRoute.hostnames }}
+
+Open it at: https://{{ first .Values.httpRoute.hostnames }}
+{{- else }}
+
+To open it without a route:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "view.fullname" . }} 8080:{{ .Values.service.port }}
+  then http://localhost:8080
+{{- end }}
+
+Tiles, maintenance window and service checks come from `config` in your values.
+Open pages update by themselves after an upgrade, usually within a minute.

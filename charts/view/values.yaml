@@ -1,0 +1,111 @@
+# Default values for the view chart.
+
+image:
+  repository: ghcr.io/glitchfactory-io/view
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  # Defaults to the release's name.
+  name: ""
+  annotations: {}
+
+# Read-only permissions for the network card: gateways, nodes and services,
+# plus leases in leaseNamespace (only for the "announced by" node name).
+# With config.discovery switched on, also HTTPRoutes.
+# Nothing can be changed, and Secrets can't be read.
+rbac:
+  create: true
+  # Where Cilium keeps its Layer 2 announcement leases.
+  leaseNamespace: kube-system
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Publish the page through a Gateway API gateway.
+httpRoute:
+  enabled: false
+  annotations: {}
+  hostnames: []
+  #  - view.example.com
+  parentRefs: []
+  #  - name: gateway
+  #    namespace: network
+  #    sectionName: https
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+  limits:
+    memory: 64Mi
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Extra environment variables. For example HTTPS_PROXY and NO_PROXY for the
+# service checks, or SSL_CERT_FILE pointing at a company CA bundle.
+env: []
+# Extra volumes and mounts, e.g. a ConfigMap holding that CA bundle.
+extraVolumes: []
+extraVolumeMounts: []
+
+# What the page shows. Open pages pick up changes by themselves, usually
+# within a minute of the upgrade, without restarting the pod.
+config:
+  # The heading at the top of the page.
+  title: view
+
+  # One tile per site, in this order. Keys 1-9 open the first nine.
+  #   name: what's written on the tile (optional: taken from the address)
+  #   url:  where it goes (http:// is needed for plain-http services)
+  #   icon: address of a logo image (optional: by default the site's own icon)
+  tiles: []
+  #  - name: Grafana
+  #    url: https://grafana.example.com
+
+  # Tiles from HTTPRoutes: every route labelled view.glitchfactory.io/enabled: "true"
+  # gets a tile after the ones above, linking to https://<its first hostname>/.
+  # A link that's already a tile above isn't shown twice. Routes are re-read
+  # every 30 seconds. Optional annotations on the route:
+  #   view.glitchfactory.io/name: Grafana                            (default: from the hostname)
+  #   view.glitchfactory.io/icon: https://example.com/logo.png
+  #   view.glitchfactory.io/url:  https://grafana.example.com/d/home (a different link)
+  # label: use your own label instead; the annotations then share its prefix.
+  # discovery:
+  #   enabled: true
+  #   label: view.glitchfactory.io/enabled
+
+  # A weekly maintenance window, shown in the sidebar as a countdown.
+  # maintenance:
+  #   day: tuesday
+  #   from: "18:00"
+  #   to: "22:00"
+  #   timezone: Europe/Berlin
+
+  # Two more sidebar cards.
+  #   network:      gateway (ingress) and node (egress) IPs; default true, needs rbac.create
+  #   certWarnDays: warn when a service's certificate has fewer days left (default 21)
+  #   services:     checked every minute from inside the cluster
+  #     url:    a web address; up = any answer below 500
+  #     expect: the exact status that counts as up, e.g. 200 for health endpoints
+  #     proxy:  http://proxy:3128 to go through a proxy, or none to go direct
+  #     tcp:    host:port for things that aren't web services; tls: true to check the certificate
+  # platform:
+  #   certWarnDays: 21
+  #   services:
+  #     - name: GitLab
+  #       url: https://gitlab.example.com/users/sign_in
+  #     - name: LDAP
+  #       tcp: ldap.example.com:636
+  #       tls: true
