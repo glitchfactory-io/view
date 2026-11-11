@@ -31,6 +31,16 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
+{{/* "true" when the network card is switched on (network.enabled), otherwise empty. */}}
+{{- define "view.networkEnabled" -}}
+{{- if and (kindIs "map" .Values.network) (eq (toString .Values.network.enabled) "true") -}}true{{- end -}}
+{{- end -}}
+
+{{/* "true" when the platform footer is switched on (tooling.enabled), otherwise empty. */}}
+{{- define "view.toolingEnabled" -}}
+{{- if and (kindIs "map" .Values.tooling) (eq (toString .Values.tooling.enabled) "true") -}}true{{- end -}}
+{{- end -}}
+
 {{- define "view.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
 {{- default (include "view.fullname" .) .Values.serviceAccount.name -}}

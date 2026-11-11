@@ -1,5 +1,6 @@
 {{- if .Values.rbac.create }}
-# Read-only access for the network card. Nothing can be changed, and Secrets can't be read.
+{{- if include "view.networkEnabled" . }}
+# Read-only access for the network card (network.enabled). Nothing can be changed, and Secrets can't be read.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -57,6 +58,41 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "view.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if include "view.toolingEnabled" . }}
+---
+# Only with tooling.enabled: the images of deployments, daemonsets and statefulsets, to
+# recognise the platform's components, and the Gateway API's CRD for its version.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "view.clusterName" . }}-platform-reader
+  labels:
+    {{- include "view.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "statefulsets"]
+    verbs: ["list"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    resourceNames: ["gateways.gateway.networking.k8s.io"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "view.clusterName" . }}-platform-reader
+  labels:
+    {{- include "view.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "view.clusterName" . }}-platform-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "view.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
 {{- $discovery := .Values.config.discovery }}
 {{- if kindIs "map" $discovery }}
 {{- if ne (toString (get $discovery "enabled")) "false" }}

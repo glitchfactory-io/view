@@ -2,11 +2,37 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>view</title>
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#e9ecef">
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e1012">
+<script>
+/* Theme: "light", "dark" or "system" (the default). Applied before the first paint, so there's no flash. */
+window.viewTheme = (() => {
+  const KEY = "view.theme";
+  const BG = { light: "#e9ecef", dark: "#0e1012" };
+  const root = document.documentElement;
+  function apply(choice) {
+    const forced = choice === "light" || choice === "dark";
+    if (forced) root.dataset.theme = choice; else delete root.dataset.theme;
+    document.querySelector('meta[name="color-scheme"]').content = forced ? choice : "light dark";
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+      m.content = BG[forced ? choice : (m.media.includes("dark") ? "dark" : "light")];
+    });
+    return forced ? choice : "system";
+  }
+  let saved = null;
+  try { saved = localStorage.getItem(KEY); } catch {}
+  let current = apply(saved);
+  return {
+    get: () => current,
+    set(choice) {
+      current = apply(choice);
+      try { if (current === "system") localStorage.removeItem(KEY); else localStorage.setItem(KEY, current); } catch {}
+    },
+  };
+})();
+</script>
 <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
 <link rel="preload" href="/assets/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
 <style>
@@ -48,7 +74,7 @@
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0e1012;
     --ink: #eceef1;
     --muted: #8a919c;
@@ -72,9 +98,33 @@
     color-scheme: dark;
   }
 }
+/* the same colors when dark is chosen with the toggle */
+:root[data-theme="dark"] {
+  --bg: #0e1012;
+  --ink: #eceef1;
+  --muted: #8a919c;
+  --tile: rgb(255 255 255 / .035);
+  --tile-top: rgb(255 255 255 / .06);
+  --line: rgb(255 255 255 / .075);
+  --tile-shadow: inset 0 1px 0 rgb(255 255 255 / .045), 0 1px 2px rgb(0 0 0 / .35), 0 18px 36px -24px rgb(0 0 0 / .8);
+  --plate: #f3f4f6;
+  --plate-line: rgb(255 255 255 / .06);
+  --glow-strength: .18;
+  --grain: .03;
+  --warn: #f6c26b;
+  --warn-bg: rgb(245 165 36 / .12);
+  --neutral-c: hsl(220 16% 62%);
+  --track: rgb(255 255 255 / .08);
+  --divider: rgb(255 255 255 / .11);
+  --ok: #3fcf8e;
+  --bad: #ff7a6e;
+  --amber: #f2a93b;
+  --amber-ink: #f6c26b;
+  color-scheme: dark;
+}
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; background: var(--bg); }
+html { background: var(--bg); }
 body {
   margin: 0;
   min-height: 100dvh;
@@ -84,7 +134,6 @@ body {
   font-feature-settings: "ss01";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  -webkit-tap-highlight-color: transparent;
   overflow-x: hidden;
 }
 
@@ -96,13 +145,16 @@ body {
   overflow: hidden;
   z-index: 0;
 }
+/* An oval, wider than tall (16:10, like a window). On a box that isn't square,
+   closest-side turns the gradient into an ellipse that fades out before the
+   edges, so there are no corners to round off. */
 .glow {
   position: absolute;
   left: 0;
   top: 0;
+  /* ratio 16:10 */
   width: 410px;
-  height: 410px;
-  border-radius: 15%;
+  height: 256px;
   background: radial-gradient(closest-side, var(--glow), transparent);
   opacity: 0;
   will-change: transform, opacity;
@@ -133,8 +185,7 @@ body {
 header {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 24px;
+  gap: 16px;
   padding: 0 4px 26px;
 }
 h1 {
@@ -145,12 +196,38 @@ h1 {
   line-height: 1.2;
 }
 
+/* which cluster this page belongs to: name, then environment as a small badge,
+   on its own line below the heading */
+header { flex-wrap: wrap; row-gap: 6px; }
+.cluster {
+  order: 1;
+  flex-basis: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.cluster[hidden] { display: none; }
+.cluster .cname { overflow: hidden; text-overflow: ellipsis; }
+.cluster .cenv {
+  padding: 1px 8px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 12px;
+  font-weight: 560;
+  letter-spacing: .02em;
+}
+
 /* type-to-search readout */
 .find {
   display: flex;
   align-items: baseline;
   gap: 12px;
   min-width: 0;
+  margin-left: auto;
   font-size: 14px;
   color: var(--muted);
   white-space: nowrap;
@@ -172,6 +249,39 @@ h1 {
   animation: caret 1s steps(1) infinite;
 }
 @keyframes caret { 50% { opacity: 0; } }
+
+/* light / dark / system switch */
+.theme {
+  display: inline-flex;
+  flex: none;
+  align-self: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--tile);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.theme button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background .2s ease, color .2s ease, box-shadow .2s ease;
+}
+.theme button:hover { color: var(--ink); }
+.theme button[aria-pressed="true"] {
+  background: var(--tile-top);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line), 0 1px 2px rgb(15 23 42 / .1);
+}
+.theme button:focus-visible { outline: 2px solid color-mix(in oklab, var(--ink) 45%, transparent); outline-offset: 1px; }
+.theme svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 
 .notice {
   margin: 0 4px 22px;
@@ -309,7 +419,7 @@ h1 {
 
 .panel[hidden] { display: none; }
 
-/* ---------- services card ---------- */
+/* ---------- platform services card ---------- */
 .svcs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
 .svc {
   display: grid;
@@ -331,6 +441,9 @@ h1 {
 .svc.cert-bad .dot { background: var(--bad); }
 .svc.down .dot { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in oklab, var(--bad) 22%, transparent); }
 .svc .sname { font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.sname { color: inherit; text-decoration: none; border-radius: 3px; }
+a.sname:hover { text-decoration: underline; text-decoration-color: var(--divider); text-underline-offset: 3px; text-decoration-thickness: 1.5px; }
+a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px; }
 .svc .sstate { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .svc.slow .sstate { color: var(--amber-ink); }
 .svc.down .sstate { color: var(--bad); font-weight: 600; }
@@ -343,6 +456,19 @@ h1 {
 }
 .svc .sdetail.warn { color: var(--amber-ink); }
 .svc .sdetail.bad { color: var(--bad); }
+
+/* ---------- platform footer: versions of the platform's components ---------- */
+.tools { margin-top: 40px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 12.5px; color: var(--muted); opacity: .78; transition: opacity .2s ease; }
+.tools:hover, .tools:focus-within { opacity: 1; }
+.tools[hidden] { display: none; }
+.tools .lbl { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; margin-right: 4px; }
+.tools .badge { display: inline-flex; border-radius: 7px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); line-height: 1; color: inherit; text-decoration: none; }
+.tools .badge b { font-weight: 560; padding: 5px 7px 5px 8px; color: var(--ink); opacity: .78; background: color-mix(in oklab, var(--tile-top) 80%, transparent); }
+.tools .badge span { padding: 5px 8px 5px 7px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; background: color-mix(in oklab, var(--neutral-c) 14%, transparent); }
+.tools a.badge:hover b { opacity: 1; }
+.tools a.badge:hover span { background: color-mix(in oklab, var(--neutral-c) 24%, transparent); color: var(--ink); }
+.tools a.badge:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px; }
+.tools .toolerr { color: var(--amber-ink); }
 
 /* ---------- network card ---------- */
 .neterr { margin: 0; font-size: 13px; line-height: 1.45; color: var(--amber-ink); }
@@ -474,9 +600,7 @@ h1 {
   opacity: 0;
   transition: opacity .2s ease;
 }
-@media (hover: hover) and (pointer: fine) {
-  .tile:hover .key, .tile:focus-visible .key { opacity: 1; }
-}
+.tile:hover .key, .tile:focus-visible .key { opacity: 1; }
 .filtering .key { display: none; }
 
 .filtering .tile.dim { opacity: .26; filter: saturate(.3); }
@@ -506,7 +630,13 @@ h1 {
 <div class="wrap" id="app">
   <header>
     <h1 id="title">view</h1>
+    <div class="cluster" id="cluster" hidden><span class="cname" id="cname"></span><span class="cenv" id="cenv"></span></div>
     <div class="find" id="find" aria-live="polite"><span class="q" id="q"></span><span id="hint">Type to search</span></div>
+    <div class="theme" id="theme" role="group" aria-label="Color theme">
+      <button type="button" data-choice="light" title="Light" aria-label="Light"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9"/></svg></button>
+      <button type="button" data-choice="dark" title="Dark" aria-label="Dark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 9.6A5.6 5.6 0 0 1 6.4 2.5a5.6 5.6 0 1 0 7.1 7.1z"/></svg></button>
+      <button type="button" data-choice="system" title="Match system" aria-label="System"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="2.6" width="12.4" height="8.4" rx="1.4"/><path d="M5.6 13.6h4.8M8 11v2.6"/></svg></button>
+    </div>
   </header>
   <p class="notice" id="notice" role="status" hidden></p>
   <div class="layout">
@@ -524,7 +654,7 @@ h1 {
         </div>
       </section>
       <section class="panel" id="svc" hidden>
-        <h2>Services</h2>
+        <h2>Platform Services</h2>
         <ul class="svcs" id="s-list"></ul>
         <p class="foot" id="s-foot"></p>
       </section>
@@ -535,6 +665,7 @@ h1 {
       </section>
     </aside>
   </div>
+  <footer class="tools" id="tools" aria-label="Platform versions" hidden></footer>
 </div>
 
 <script id="board-data" type="application/json">/*BOARD*/</script>
@@ -543,8 +674,9 @@ h1 {
   "use strict";
   const $ = (id) => document.getElementById(id);
   const app = $("app"), grid = $("grid"), titleEl = $("title"), notice = $("notice");
+  const clusterEl = $("cluster"), cnameEl = $("cname"), cenvEl = $("cenv");
   const glow = $("glow"), qEl = $("q"), hintEl = $("hint");
-  const NEUTRAL = getComputedStyle(document.documentElement).getPropertyValue("--neutral-c").trim() || "hsl(220 14% 58%)";
+  const neutral = () => getComputedStyle(document.documentElement).getPropertyValue("--neutral-c").trim() || "hsl(220 14% 58%)";
 
   let board, shown = "", query = "", best = -1;
   try { board = JSON.parse($("board-data").textContent); } catch { board = null; }
@@ -647,7 +779,7 @@ h1 {
 
   function render(next) {
     // The tiles are only rebuilt when they change, not when the sidebar does.
-    const json = JSON.stringify([next.title, next.tiles, next.error, next.discoveryError]);
+    const json = JSON.stringify([next.title, next.cluster, next.tiles, next.error, next.discoveryError]);
     const prev = board;
     board = next;
     tickSidebar();
@@ -657,7 +789,15 @@ h1 {
     shown = json;
 
     titleEl.textContent = board.title || "view";
-    document.title = titleEl.textContent;
+    // Cluster first in the tab title, so several clusters' tabs can be told apart even when cut short.
+    const cl = board.cluster || {}, name = cl.name || "", env = cl.environment || "";
+    cnameEl.textContent = name;
+    cnameEl.hidden = !name;
+    cenvEl.textContent = env;
+    cenvEl.hidden = !env;
+    clusterEl.hidden = !name && !env;
+    const where = [name, env].filter(Boolean).join(" · ");
+    document.title = where ? where + " — " + titleEl.textContent : titleEl.textContent;
 
     if (board.error) {
       const s = document.createElement("strong");
@@ -774,7 +914,7 @@ h1 {
     [...mDays.children].forEach((el, i) => el.classList.toggle("on", i === k));
   }
 
-  /* ---------- services card ---------- */
+  /* ---------- platform services card ---------- */
   const svc = $("svc"), sList = $("s-list"), sFoot = $("s-foot");
   const make = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const clockFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -806,11 +946,17 @@ h1 {
       svcShown = key;
       sList.replaceChildren(...st.items.map((it) => {
         const li = make("li", "svc " + it.state + (it.certLevel ? " cert-" + it.certLevel : ""));
-        li.title = it.target;
-        const state = it.state === "up" ? `${it.ms} ms`
-          : it.state === "slow" ? `slow, ${(it.ms / 1000).toFixed(1)} s`
-          : it.state === "down" ? "down" : "checking";
-        li.append(make("span", "dot"), make("span", "sname", it.name), make("span", "sstate", state));
+        // the response time is for debugging, so it's only in the tooltip
+        li.title = it.ms ? `${it.target} · ${it.ms < 1000 ? it.ms + " ms" : (it.ms / 1000).toFixed(1) + " s"}` : it.target;
+        const state = it.state === "up" || it.state === "slow" || it.state === "down" ? it.state : "checking";
+        // the name links to the tool, so the card doubles as a jump list
+        let name = make("span", "sname", it.name);
+        if (it.link) {
+          name = make("a", "sname", it.name);
+          name.href = it.link;
+          name.rel = "noreferrer";
+        }
+        li.append(make("span", "dot"), name, make("span", "sstate", state));
         if (it.state === "down") {
           li.append(make("p", "sdetail", `${sinceText(it.since)}: ${it.detail}`));
         } else if (it.certLevel) {
@@ -862,6 +1008,35 @@ h1 {
     );
   }
 
+  /* ---------- platform footer ---------- */
+  const toolsEl = $("tools");
+  let toolsShown = "";
+
+  function renderTooling() {
+    const t = board.tooling;
+    const key = JSON.stringify(t || null);
+    if (key === toolsShown) return;
+    toolsShown = key;
+    toolsEl.hidden = !t || (!t.error && !t.items.length);
+    if (toolsEl.hidden) return;
+    const kids = [make("span", "lbl", "Platform")];
+    if (t.error) {
+      kids.push(make("span", "toolerr", "Can't read the cluster: " + t.error));
+    } else {
+      for (const it of t.items) {
+        const b = make(it.link ? "a" : "span", "badge");
+        if (it.link) {
+          b.href = it.link;
+          b.rel = "noreferrer";
+          b.title = `Release notes for ${it.name} ${it.version}`;
+        }
+        b.append(make("b", "", it.name), make("span", "", it.version));
+        kids.push(b);
+      }
+    }
+    toolsEl.replaceChildren(...kids);
+  }
+
   function tickSidebar() {
     const on = !!(board.maintenance || board.services || board.network);
     app.classList.toggle("has-side", on);
@@ -869,6 +1044,7 @@ h1 {
     tickMaintenance();
     renderServices();
     renderNetwork();
+    renderTooling();
   }
   setInterval(tickSidebar, 15000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) tickSidebar(); });
@@ -878,9 +1054,9 @@ h1 {
   function glowTo(tile) {
     glowTile = tile;
     const r = tile.getBoundingClientRect();
-    const half = glow.offsetWidth / 2;
-    const pos = `translate(${(r.left + r.width / 2 - half).toFixed(1)}px, ${(r.top + r.height / 2 - half).toFixed(1)}px)`;
-    glow.style.setProperty("--glow", tile.dataset.c || NEUTRAL);
+    const halfW = glow.offsetWidth / 2, halfH = glow.offsetHeight / 2;
+    const pos = `translate(${(r.left + r.width / 2 - halfW).toFixed(1)}px, ${(r.top + r.height / 2 - halfH).toFixed(1)}px)`;
+    glow.style.setProperty("--glow", tile.dataset.c || neutral());
     if (!glowOn) {
       glow.style.transition = "none";
       glow.style.transform = pos;
@@ -1004,6 +1180,19 @@ h1 {
     hoverTile = null;
     glowRest();
   });
+
+  /* ---------- theme switch ---------- */
+  const themeEl = $("theme");
+  const showTheme = () => themeEl.querySelectorAll("button").forEach((b) => {
+    b.setAttribute("aria-pressed", String(b.dataset.choice === window.viewTheme.get()));
+  });
+  themeEl.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    window.viewTheme.set(b.dataset.choice);
+    showTheme();
+  });
+  showTheme();
 
   /* ---------- first paint + live updates when the config changes ---------- */
   render(board && Array.isArray(board.tiles) ? board : { title: "view", tiles: [] });
