@@ -49,11 +49,31 @@ type Maintenance struct {
 	Timezone string `json:"timezone"` // e.g. Europe/Berlin
 }
 
+// Cluster says which cluster the page belongs to. Both are freeform; either may be empty.
+type Cluster struct {
+	Name        string `json:"name,omitempty"`        // e.g. k8s-home
+	Environment string `json:"environment,omitempty"` // e.g. staging
+}
+
 // PlatformConfig is the platform block of the tile list. It stays on the server.
 type PlatformConfig struct {
 	Network      bool           // show the network card (network.go)
 	CertWarnDays int            // warn when a service's certificate has fewer days left
 	Services     []ServiceCheck // checked by services.go
+	Tooling      *ToolingConfig // the platform footer (tooling.go); nil = off
+}
+
+// ToolingConfig adjusts the platform footer.
+type ToolingConfig struct {
+	Hide  []string       // component ids left out, e.g. kured
+	Extra []ExtraTooling // components view doesn't know by itself
+}
+
+// ExtraTooling is a component recognised by an image of the user's choosing.
+type ExtraTooling struct {
+	Name  string
+	Image string // image path, e.g. internetsystemsconsortium/bind9
+	Repo  string // GitHub owner/repo for the release link; "" = no link
 }
 
 // ServiceCheck is one external service the cluster's users depend on.
@@ -64,10 +84,12 @@ type ServiceCheck struct {
 	TLS    bool   // tcp only: also do a TLS handshake and check the certificate
 	Expect int    // url only: the status that counts as up; 0 = any answer below 500
 	Proxy  string // url only: "" = the pod's proxy settings, "none" = direct, or a proxy address
+	Link   string // where the name links to on the card; "" = no link
 }
 
 type Board struct {
 	Title       string           `json:"title"`
+	Cluster     *Cluster         `json:"cluster,omitempty"`
 	Tiles       []Tile           `json:"tiles"`
 	Maintenance *Maintenance     `json:"maintenance,omitempty"`
 	Error       string           `json:"error,omitempty"`
@@ -95,12 +117,30 @@ type rawService struct {
 	TLS    bool   `yaml:"tls"`
 	Expect int    `yaml:"expect"`
 	Proxy  string `yaml:"proxy"`
+	Link   any    `yaml:"link"` // an address, or false for no link
 }
 
 type rawPlatform struct {
 	Network      *bool        `yaml:"network"`
 	CertWarnDays *int         `yaml:"certWarnDays"`
 	Services     []rawService `yaml:"services"`
+	Tooling      *rawTooling  `yaml:"tooling"`
+}
+
+type rawTooling struct {
+	Hide  []string          `yaml:"hide"`
+	Extra []rawExtraTooling `yaml:"extra"`
+}
+
+type rawExtraTooling struct {
+	Name  string `yaml:"name"`
+	Image string `yaml:"image"`
+	Repo  string `yaml:"repo"`
+}
+
+type rawCluster struct {
+	Name        string `yaml:"name"`
+	Environment string `yaml:"environment"`
 }
 
 type rawDiscovery struct {
@@ -110,6 +150,7 @@ type rawDiscovery struct {
 
 type rawConfig struct {
 	Title       string          `yaml:"title"`
+	Cluster     *rawCluster     `yaml:"cluster"`
 	Tiles       []rawTile       `yaml:"tiles"`
 	Maintenance *rawMaintenance `yaml:"maintenance"`
 	Platform    *rawPlatform    `yaml:"platform"`
@@ -171,6 +212,31 @@ func mergeTiles(static, found []Tile) []Tile {
 	return out
 }
 
+const maxClusterText = 60
+
+// parseCluster checks the cluster block. Nothing set at all gives nil, so nothing is shown.
+func parseCluster(r *rawCluster) (*Cluster, error) {
+	c := &Cluster{}
+	for _, f := range []struct {
+		key string
+		in  string
+		out *string
+	}{{"name", r.Name, &c.Name}, {"environment", r.Environment, &c.Environment}} {
+		v := strings.TrimSpace(f.in)
+		if strings.ContainsAny(v, "\r\n\t") {
+			return nil, fmt.Errorf("cluster: %s should be a single line", f.key)
+		}
+		if len([]rune(v)) > maxClusterText {
+			return nil, fmt.Errorf("cluster: %s is too long (%d characters at most)", f.key, maxClusterText)
+		}
+		*f.out = v
+	}
+	if c.Name == "" && c.Environment == "" {
+		return nil, nil
+	}
+	return c, nil
+}
+
 func parsePlatform(r *rawPlatform) (*PlatformConfig, error) {
 	pc := &PlatformConfig{CertWarnDays: 21}
 	if r.CertWarnDays != nil {
@@ -199,7 +265,56 @@ func parsePlatform(r *rawPlatform) (*PlatformConfig, error) {
 		seen[sc.Name] = true
 		pc.Services = append(pc.Services, sc)
 	}
+	if r.Tooling != nil {
+		tc, err := parseTooling(r.Tooling)
+		if err != nil {
+			return nil, fmt.Errorf("platform: tooling: %v", err)
+		}
+		pc.Tooling = tc
+	}
 	return pc, nil
+}
+
+var (
+	repoRe  = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	imageRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9._/:-]*[a-z0-9])?$`)
+)
+
+func parseTooling(r *rawTooling) (*ToolingConfig, error) {
+	tc := &ToolingConfig{}
+	known := map[string]bool{}
+	for _, id := range componentIDs() {
+		known[id] = true
+	}
+	for _, h := range r.Hide {
+		id := strings.ToLower(strings.TrimSpace(h))
+		if !known[id] {
+			return nil, fmt.Errorf("hide: %q isn't a component view knows (%s)", h, strings.Join(componentIDs(), ", "))
+		}
+		tc.Hide = append(tc.Hide, id)
+	}
+	if len(r.Extra) > 30 {
+		return nil, errors.New("extra: too many components (30 at most)")
+	}
+	for i, x := range r.Extra {
+		e := ExtraTooling{Name: strings.TrimSpace(x.Name), Image: strings.Trim(strings.TrimSpace(x.Image), "/"), Repo: strings.TrimSpace(x.Repo)}
+		switch {
+		case e.Name == "":
+			return nil, fmt.Errorf("extra number %d needs a name", i+1)
+		case len([]rune(e.Name)) > 40:
+			return nil, fmt.Errorf("extra %s: name is too long (40 characters at most)", e.Name)
+		case e.Image == "":
+			return nil, fmt.Errorf("extra %s needs image: the image path it runs as, like internetsystemsconsortium/bind9", e.Name)
+		case !imageRe.MatchString(e.Image) || strings.ContainsAny(e.Image, "@"):
+			return nil, fmt.Errorf("extra %s: image %q should be an image path without tag, like internetsystemsconsortium/bind9", e.Name, x.Image)
+		case strings.LastIndex(e.Image, ":") > strings.LastIndex(e.Image, "/"):
+			return nil, fmt.Errorf("extra %s: leave the tag off image %q, the version is read from the cluster", e.Name, x.Image)
+		case e.Repo != "" && !repoRe.MatchString(e.Repo):
+			return nil, fmt.Errorf("extra %s: repo %q should be a GitHub owner/name, like isc-projects/bind9", e.Name, x.Repo)
+		}
+		tc.Extra = append(tc.Extra, e)
+	}
+	return tc, nil
 }
 
 func parseService(r rawService) (ServiceCheck, error) {
@@ -247,7 +362,44 @@ func parseService(r rawService) (ServiceCheck, error) {
 			sc.Name = host
 		}
 	}
+	link, err := serviceLink(r.Link, sc.URL)
+	if err != nil {
+		return sc, err
+	}
+	sc.Link = link
 	return sc, nil
+}
+
+// serviceLink works out where a service's name links to. By default that's the root of
+// the checked address, since that's often a health endpoint or a login page; tcp checks
+// have no link. link: sets any address instead, and link: false turns it off.
+func serviceLink(raw any, checked string) (string, error) {
+	switch v := raw.(type) {
+	case nil:
+	case bool:
+		if !v {
+			return "", nil
+		}
+	case string:
+		if strings.TrimSpace(v) == "" {
+			break
+		}
+		n, ok := normalizeURL(v)
+		if !ok {
+			return "", fmt.Errorf("link %q is not a web address (or use false for no link)", v)
+		}
+		return n, nil
+	default:
+		return "", errors.New("link should be a web address, or false for no link")
+	}
+	if checked == "" {
+		return "", nil // tcp checks have no address to link to
+	}
+	u, err := url.Parse(checked)
+	if err != nil {
+		return "", nil
+	}
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: "/"}).String(), nil
 }
 
 var (
@@ -344,16 +496,20 @@ func friendlyYAMLError(err error) string {
 	msg = strings.TrimPrefix(msg, "yaml: unmarshal errors:\n")
 	msg = strings.TrimPrefix(msg, "yaml: ")
 	msg = strings.ReplaceAll(msg, "not found in type main.rawTile", "is not a tile setting (use name, url or icon)")
-	msg = strings.ReplaceAll(msg, "not found in type main.rawConfig", "is not a known setting (use title, tiles, maintenance, platform or discovery)")
+	msg = strings.ReplaceAll(msg, "not found in type main.rawConfig", "is not a known setting (use title, cluster, tiles, maintenance, platform or discovery)")
+	msg = strings.ReplaceAll(msg, "not found in type main.rawCluster", "is not a cluster setting (use name or environment)")
 	msg = strings.ReplaceAll(msg, "not found in type main.rawDiscovery", "is not a discovery setting (use enabled or label)")
-	msg = strings.ReplaceAll(msg, "not found in type main.rawPlatform", "is not a platform setting (use network, certWarnDays or services)")
-	msg = strings.ReplaceAll(msg, "not found in type main.rawService", "is not a service setting (use name, url, tcp, tls, expect or proxy)")
+	msg = strings.ReplaceAll(msg, "not found in type main.rawPlatform", "is not a platform setting (use network, certWarnDays, services or tooling)")
+	msg = strings.ReplaceAll(msg, "not found in type main.rawService", "is not a service setting (use name, url, tcp, tls, expect, proxy or link)")
+	msg = strings.ReplaceAll(msg, "not found in type main.rawTooling", "is not a tooling setting (use hide or extra)")
+	msg = strings.ReplaceAll(msg, "not found in type main.rawExtraTooling", "is not an extra tooling setting (use name, image or repo)")
 	msg = strings.ReplaceAll(msg, "not found in type main.rawMaintenance", "is not a maintenance setting (use day, from, to or timezone)")
 	msg = regexp.MustCompile(`cannot unmarshal !!\w+ `+"`"+`([^`+"`"+`]*)`+"`"+` into \[\]main\.rawTile`).ReplaceAllString(msg, "tiles must be a list, each entry starting with \"- \"")
 	msg = regexp.MustCompile(`cannot unmarshal !!\w+ `+"`"+`?([^`+"`"+`]*)`+"`"+`? into main\.rawTile`).ReplaceAllString(msg, "each tile needs \"name:\" and \"url:\" on their own lines")
 	if strings.Contains(msg, "did not find expected") || strings.Contains(msg, "mapping values are not allowed") {
 		msg += " (usually the spaces at the start of a line don't line up with the lines around it)"
 	}
+	msg = regexp.MustCompile(`cannot unmarshal !!\w+ `+"`"+`?([^`+"`"+`]*)`+"`"+`? into main\.rawCluster`).ReplaceAllString(msg, "cluster needs name and/or environment, each on its own line below it")
 	msg = regexp.MustCompile(`cannot unmarshal !!\w+ `+"`"+`?([^`+"`"+`]*)`+"`"+`? into main\.rawMaintenance`).ReplaceAllString(msg, "maintenance needs day, from, to and timezone, each on its own line below it")
 	lines := strings.Split(msg, "\n")
 	for i := range lines {
@@ -385,6 +541,13 @@ func parseConfig(data []byte) (Board, error) {
 
 	if t := strings.TrimSpace(rc.Title); t != "" {
 		b.Title = t
+	}
+	if rc.Cluster != nil {
+		c, err := parseCluster(rc.Cluster)
+		if err != nil {
+			return b, err
+		}
+		b.Cluster = c
 	}
 	if len(rc.Tiles) > 500 {
 		return b, errors.New("too many tiles (500 at most)")
@@ -447,6 +610,7 @@ type config struct {
 	found    []Tile          // tiles discovered from labelled routes
 	foundErr string          // why discovery isn't working, if it isn't
 	services *ServicesStatus // latest service checks, nil when there are none
+	tooling  *ToolingStatus  // latest platform footer, nil when it's off
 	snap     []byte          // what the browser gets
 	subs     map[chan []byte]struct{}
 }
@@ -512,7 +676,8 @@ func (c *config) publishLocked() {
 		DiscoveryError string          `json:"discoveryError,omitempty"`
 		Network        *NetworkStatus  `json:"network,omitempty"`
 		Services       *ServicesStatus `json:"services,omitempty"`
-	}{shown, c.foundErr, c.network, c.services})
+		Tooling        *ToolingStatus  `json:"tooling,omitempty"`
+	}{shown, c.foundErr, c.network, c.services, c.tooling})
 	if bytes.Equal(snap, c.snap) {
 		return
 	}
@@ -559,6 +724,21 @@ func (c *config) setNetwork(n *NetworkStatus) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.network = n
+	c.publishLocked()
+}
+
+func (c *config) toolingConfig() *ToolingConfig {
+	pc := c.platformConfig()
+	if pc == nil {
+		return nil
+	}
+	return pc.Tooling
+}
+
+func (c *config) setTooling(t *ToolingStatus) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tooling = t
 	c.publishLocked()
 }
 

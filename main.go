@@ -170,6 +170,7 @@ func main() {
 	go newNetworkWatcher(cfg).run(ctx)
 	go newServiceWatcher(cfg).run(ctx)
 	go newDiscoveryWatcher(cfg).run(ctx)
+	go newToolingWatcher(cfg).run(ctx)
 
 	go func() {
 		log.Printf("view listening on %s, reading tiles from %s", addr, configPath)

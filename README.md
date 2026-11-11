@@ -1,7 +1,8 @@
 # view
 
 A calm, read-only start page for a Kubernetes cluster: a board of tiles, one per website, with a
-sidebar for the next maintenance window, service checks and the cluster's network facts.
+sidebar for the next maintenance window, service checks and the cluster's network facts, and a footer with
+the versions of the platform's components.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-light.png">
@@ -65,6 +66,21 @@ config:
 **If the config has a mistake**, nothing breaks. The page keeps showing the last version that worked
 and says at the top what's wrong and on which line.
 
+## Cluster name and environment
+
+For people who work with several clusters, the page can say which one it belongs to. Both values are free
+text, and either can be left out:
+
+```yaml
+config:
+  cluster:
+    name: k8s-home
+    environment: staging
+```
+
+They're shown below the heading, and at the start of the browser tab's title (`k8s-home · staging — view`),
+so tabs of different clusters can be told apart. Leave the block out to show neither.
+
 ## Tiles from routes
 
 Instead of listing a site under `tiles`, you can label its HTTPRoute and it gets a tile by itself.
@@ -121,13 +137,14 @@ maintenance:
 While the window is running, the card turns amber and counts down to its end.
 Leave the block out to hide the sidebar.
 
-## Services and network cards
+## Platform Services and network cards
 
-Two more sidebar cards, both set up in the `platform:` block under `config`.
+Two more sidebar cards. The services are set up in the `platform:` block under `config`; the network card
+is switched on with `network.enabled` in the Helm values.
 
-**Services:** can things running in this cluster reach the services your users depend on? Every minute
-the server checks each one from inside the cluster, so it takes the same path a pod would: node,
-firewall, proxy, service.
+**Platform Services:** can things running in this cluster reach the shared platform services your users
+depend on (GitLab, Nexus, LDAP …)? Every minute the server checks each one from inside the cluster, so it
+takes the same path a pod would: node, firewall, proxy, service. They're listed under `services:`.
 
 ```yaml
 platform:
@@ -138,17 +155,24 @@ platform:
     - name: Nexus
       url: https://nexus.example.com/service/rest/v1/status
       expect: 200                                      # health endpoints: require this status
+      link: https://nexus.example.com/#browse          # where the name links to (optional)
     - name: Outside world
       url: https://www.example.com
       proxy: http://proxy.example.com:3128             # or: none, to go direct
+      link: false                                      # nothing worth opening
     - name: LDAP
       tcp: ldap.example.com:636                        # not a web service: just connect
       tls: true                                        # and check its certificate
 ```
 
 - A service only shows as down after two failed checks in a row, with the time it started failing.
-- Over 2 seconds counts as slow.
+- Each service shows `up`, `slow` (over 2 seconds), `down` or `checking` (before the first check). Hover it to
+  see what's checked and how long the last check took.
 - Certificates are read along the way: amber under `certWarnDays`, red under 7 days.
+- Each name links to its tool, so the card doubles as a jump list. By default that's the root of the
+  checked address (`https://nexus.example.com/`), since the check often hits a health endpoint or a login
+  page. `link:` sets any other address, `link: false` leaves the name unlinked. `tcp:` checks have no link
+  unless `link:` is set. Links open like tiles (Ctrl/Cmd-click or middle-click for a new tab).
 - Without `proxy:`, checks follow the pod's own proxy settings (`HTTPS_PROXY`, `NO_PROXY`), if any.
 - Certificates from an internal CA are trusted once the CA is in the image's trust store, or pointed to
   with the `SSL_CERT_FILE` environment variable.
@@ -160,9 +184,59 @@ platform:
 - Egress: the nodes' internal IPs, which is where pod traffic leaves from. Nodes that joined in the last
   week are marked, so allowlists can be updated in time.
 
-It needs read-only permissions (gateways, nodes, services, and leases in `kube-system`), which the chart
-creates with `rbac.create: true` (the default). It can't change anything or read Secrets. Set
-`network: false` in the platform block to hide the card.
+The card is off by default, since not every cluster needs it. Switch it on in the Helm values:
+
+```yaml
+network:
+  enabled: true
+```
+
+That's the only switch: the chart writes it into the config as `platform.network`, so don't set that one
+yourself. Only with the card on does the chart give the service account the read-only permissions it needs
+(gateways, nodes, services, and leases in `kube-system`, with `rbac.create: true`, the default). It can't
+change anything or read Secrets.
+
+## Platform versions
+
+A footer row shows which versions of Kubernetes and the platform's own components run in the cluster, each
+linking to its GitHub release. Switch it on in the Helm values:
+
+```yaml
+tooling:
+  enabled: true
+```
+
+Nothing needs labelling or listing: view recognises components by their container images, however they were
+installed (Flux, k3s, plain manifests). It knows:
+
+| Component | Read from |
+| --- | --- |
+| Kubernetes | the API's version, shown short and named after the distribution: `k3s v1.36.3`, `RKE2`, `EKS`, `GKE` |
+| Cilium, kgateway, CoreDNS, flux-operator, cert-manager, CloudNativePG, CSI NFS, metrics-server, kured | the image tag (Rancher's mirrored images count too) |
+| Flux | its controllers' `app.kubernetes.io/version` label (the Flux release, not each controller's) |
+| Gateway API | the `bundle-version` annotation on its CRD |
+
+- Components that aren't in the cluster are simply left out. Workloads are never shown.
+- During a rollout, both versions are shown (`v1.20.1 / v1.19.4`) until the old one is gone.
+- Versions are re-read every 2 minutes.
+- `hide` leaves components out, by id: `kubernetes`, `cilium`, `gateway-api`, `kgateway`, `coredns`, `flux`,
+  `flux-operator`, `cert-manager`, `cloudnative-pg`, `csi-driver-nfs`, `metrics-server`, `kured`.
+- `extra` adds components view doesn't know, by their image path (without tag). With `repo`, the badge links
+  to that GitHub repo's release named like the image tag.
+
+```yaml
+tooling:
+  enabled: true
+  hide: [kured]
+  extra:
+    - name: BIND
+      image: internetsystemsconsortium/bind9
+      repo: isc-projects/bind9      # optional
+```
+
+Switching it on also gives the service account read access to Deployments, DaemonSets and StatefulSets (for their
+images) and to the Gateway API's CRD (with `rbac.create: true`, the default). It can't change anything or read
+Secrets.
 
 ## Using the page
 
@@ -170,7 +244,7 @@ creates with `rbac.create: true` (the default). It can't change anything or read
 - **Type to search:** just start typing a name or address. The best match lights up; Enter opens it
   (Cmd/Ctrl+Enter in a new tab), Esc clears.
 - Keys `1`–`9` open the first nine tiles. Add Shift to open in a new tab.
-- Light and dark follow your device's setting. Each tile takes its accent color from the site's own icon.
+- Light and dark follow your device's setting by default. The switch at the top right picks light, dark or system; the choice is remembered in that browser. Each tile takes its accent color from the site's own icon.
 
 ## License
 

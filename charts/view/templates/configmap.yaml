@@ -1,3 +1,32 @@
+{{- /*
+network.enabled is the one switch for the network card: it's written into the
+config as platform.network. A different platform.network in config would be
+silently overridden, so that's refused instead.
+*/}}
+{{- $config := deepCopy (.Values.config | default dict) }}
+{{- $network := eq (include "view.networkEnabled" .) "true" }}
+{{- $platform := dict }}
+{{- if kindIs "map" $config.platform }}
+{{- $platform = $config.platform }}
+{{- end }}
+{{- if and (hasKey $platform "network") (ne (toString (get $platform "network")) (toString $network)) }}
+{{- fail (printf "config.platform.network is %v but network.enabled is %v: switch the network card with network.enabled only, and remove config.platform.network" (get $platform "network") $network) }}
+{{- end }}
+{{- /* The same for tooling.*: written into the config as platform.tooling. */}}
+{{- $tooling := eq (include "view.toolingEnabled" .) "true" }}
+{{- if hasKey $platform "tooling" }}
+{{- fail "config.platform.tooling is set: switch and adjust the platform footer with tooling.enabled, tooling.hide and tooling.extra instead" }}
+{{- end }}
+{{- if or $network $tooling (kindIs "map" $config.platform) }}
+{{- $_ := set $platform "network" $network }}
+{{- if $tooling }}
+{{- $t := dict }}
+{{- with .Values.tooling.hide }}{{ $_ := set $t "hide" . }}{{ end }}
+{{- with .Values.tooling.extra }}{{ $_ := set $t "extra" . }}{{ end }}
+{{- $_ := set $platform "tooling" $t }}
+{{- end }}
+{{- $_ := set $config "platform" $platform }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,4 +35,4 @@ metadata:
     {{- include "view.labels" . | nindent 4 }}
 data:
   tiles.yaml: |
-    {{- toYaml .Values.config | nindent 4 }}
+    {{- toYaml $config | nindent 4 }}

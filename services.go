@@ -1,6 +1,6 @@
 package main
 
-// The services card: can things running in this cluster reach the services
+// The Platform Services card: can things running in this cluster reach the services
 // its users depend on (GitLab, Nexus, the proxy, ...)?
 //
 // Each service is checked every minute from inside the cluster, so the check
@@ -38,6 +38,7 @@ type ServicesStatus struct {
 type ServiceStatus struct {
 	Name      string    `json:"name"`
 	Target    string    `json:"target"`           // host or host:port, for the tooltip
+	Link      string    `json:"link,omitempty"`   // where the name links to
 	State     string    `json:"state"`            // checking, up, slow, down
 	Detail    string    `json:"detail,omitempty"` // why it's down, or what's slow
 	Since     time.Time `json:"since,omitzero"`   // down since
@@ -99,7 +100,7 @@ func (w *serviceWatcher) tick(ctx context.Context) {
 	if len(w.state) == 0 {
 		items := make([]ServiceStatus, len(pc.Services))
 		for i, s := range pc.Services {
-			items[i] = ServiceStatus{Name: s.Name, Target: targetOf(s), State: "checking"}
+			items[i] = ServiceStatus{Name: s.Name, Target: targetOf(s), Link: s.Link, State: "checking"}
 		}
 		w.cfg.setServices(&ServicesStatus{Checked: time.Now().UTC().Truncate(time.Second), Items: items})
 	}
@@ -132,11 +133,11 @@ func (w *serviceWatcher) tick(ctx context.Context) {
 		}
 		keep[key] = st
 		r := results[i]
-		it := ServiceStatus{Name: s.Name, Target: targetOf(s), Ms: int(r.elapsed / time.Millisecond)}
+		it := ServiceStatus{Name: s.Name, Target: targetOf(s), Link: s.Link, Ms: int(r.elapsed / time.Millisecond)}
 
 		if r.err == nil {
 			if st.fails >= failsForDown {
-				log.Printf("services card: %s is back up", s.Name)
+				log.Printf("platform services: %s is back up", s.Name)
 			}
 			st.everUp, st.fails, st.lastErr = true, 0, ""
 			it.State = "up"
@@ -153,7 +154,7 @@ func (w *serviceWatcher) tick(ctx context.Context) {
 			switch {
 			case st.fails >= failsForDown:
 				if st.fails == failsForDown {
-					log.Printf("services card: %s is down: %s", s.Name, st.lastErr)
+					log.Printf("platform services: %s is down: %s", s.Name, st.lastErr)
 				}
 				it.State, it.Detail, it.Since = "down", st.lastErr, st.firstFail
 			case st.everUp:

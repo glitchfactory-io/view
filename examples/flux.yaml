@@ -41,6 +41,14 @@ spec:
           namespace: network
           sectionName: https
 
+    # The network card in the sidebar (gateway and node IPs). Off by default.
+    network:
+      enabled: true
+
+    # Versions of Kubernetes and the platform's components in the footer. Off by default.
+    tooling:
+      enabled: true
+
     config:
       title: Platform
 

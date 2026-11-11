@@ -16,9 +16,36 @@ serviceAccount:
   name: ""
   annotations: {}
 
-# Read-only permissions for the network card: gateways, nodes and services,
-# plus leases in leaseNamespace (only for the "announced by" node name).
-# With config.discovery switched on, also HTTPRoutes.
+# The network card in the sidebar: the gateways' IPs (ingress) and the nodes'
+# IPs (egress). Off by default; switch it on for clusters that want it. This is
+# the only switch for the card: it sets platform.network in the config.
+network:
+  enabled: false
+
+# The platform footer: the versions of Kubernetes and the platform's own
+# components (Cilium, Gateway API, Flux, cert-manager, CloudNativePG, …), each
+# linking to its GitHub release. view recognises them by their container
+# images, however they were installed; workloads aren't shown. Off by default.
+tooling:
+  enabled: false
+  # Components to leave out, by id: kubernetes, cilium, gateway-api, kgateway,
+  # coredns, flux, flux-operator, cert-manager, cloudnative-pg, csi-driver-nfs,
+  # metrics-server, kured.
+  hide: []
+  # Components view doesn't know, recognised by their image (path without tag).
+  # repo is optional: the GitHub repo whose release the badge links to, with the
+  # image tag as the release tag.
+  extra: []
+  #  - name: BIND
+  #    image: internetsystemsconsortium/bind9
+  #    repo: isc-projects/bind9
+
+# Read-only permissions, only for what's switched on:
+#   network.enabled:   gateways, nodes and services, plus leases in leaseNamespace
+#                      (only for the "announced by" node name)
+#   tooling.enabled:   deployments, daemonsets and statefulsets (for their images),
+#                      and the Gateway API's CRD (for its version)
+#   config.discovery:  HTTPRoutes
 # Nothing can be changed, and Secrets can't be read.
 rbac:
   create: true
@@ -66,6 +93,13 @@ config:
   # The heading at the top of the page.
   title: view
 
+  # Which cluster this page belongs to, for people who work with several.
+  # Shown below the heading and at the start of the browser tab's title.
+  # Both are free text and optional; one left out is simply not shown.
+  # cluster:
+  #   name: k8s-home
+  #   environment: staging
+
   # One tile per site, in this order. Keys 1-9 open the first nine.
   #   name: what's written on the tile (optional: taken from the address)
   #   url:  where it goes (http:// is needed for plain-http services)
@@ -93,14 +127,15 @@ config:
   #   to: "22:00"
   #   timezone: Europe/Berlin
 
-  # Two more sidebar cards.
-  #   network:      gateway (ingress) and node (egress) IPs; default true, needs rbac.create
+  # Service checks in the sidebar. (The network card is switched with
+  # network.enabled above, not here.)
   #   certWarnDays: warn when a service's certificate has fewer days left (default 21)
-  #   services:     checked every minute from inside the cluster
+  #   services:     the Platform Services card, checked every minute from inside the cluster
   #     url:    a web address; up = any answer below 500
   #     expect: the exact status that counts as up, e.g. 200 for health endpoints
   #     proxy:  http://proxy:3128 to go through a proxy, or none to go direct
   #     tcp:    host:port for things that aren't web services; tls: true to check the certificate
+  #     link:   where the name links to; default: the root of url (tcp: none), false for no link
   # platform:
   #   certWarnDays: 21
   #   services:
