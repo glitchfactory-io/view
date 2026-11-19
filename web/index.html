@@ -6,18 +6,21 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#e9ecef">
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e1012">
+<script id="board-data" type="application/json">/*BOARD*/</script>
 <script>
 /* Theme: "light", "dark" or "system" (the default). Applied before the first paint, so there's no flash. */
 window.viewTheme = (() => {
   const KEY = "view.theme";
   const BG = { light: "#e9ecef", dark: "#0e1012" };
   const root = document.documentElement;
+  let held = null; // a look that only exists in one mode holds it here; the stored choice is left alone
   function apply(choice) {
     const forced = choice === "light" || choice === "dark";
-    if (forced) root.dataset.theme = choice; else delete root.dataset.theme;
-    document.querySelector('meta[name="color-scheme"]').content = forced ? choice : "light dark";
+    const mode = held ? held.mode : forced ? choice : "";
+    if (mode) root.dataset.theme = mode; else delete root.dataset.theme;
+    document.querySelector('meta[name="color-scheme"]').content = mode || "light dark";
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
-      m.content = BG[forced ? choice : (m.media.includes("dark") ? "dark" : "light")];
+      m.content = held ? held.bg : BG[mode || (m.media.includes("dark") ? "dark" : "light")];
     });
     return forced ? choice : "system";
   }
@@ -30,7 +33,49 @@ window.viewTheme = (() => {
       current = apply(choice);
       try { if (current === "system") localStorage.removeItem(KEY); else localStorage.setItem(KEY, current); } catch {}
     },
+    // hold("dark", "#0e0f11") shows that mode whatever was chosen; hold(null) goes back to the choice
+    hold(mode, bg) {
+      held = mode ? { mode, bg } : null;
+      apply(current);
+    },
   };
+})();
+
+/* Look: the theme from the config. Nothing set is the standard look: the page as it is.
+   Any other look is a set of rules under :root[data-look="…"] and gets its settings as
+   numbers from 0 to 1. (data-theme is taken: that's the light/dark switch above.)
+   Applied here from the board data, so a look is there before the first paint too. */
+window.viewLook = (() => {
+  const DIALS = ["shadow", "feel", "coarse"];
+  const root = document.documentElement;
+  let shown = "", fontAsked = false;
+  // The glitch look's grain: the higher "coarse", the bigger the specks (0 = fine dust, 100 = cloth).
+  function grain(coarse) {
+    const f = (.95 - coarse / 100 * .8).toFixed(2);
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='${f}' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .85 0 0 0 0 .85 0 0 0 0 .8 0 0 0 1.5 -.3'/></filter><rect width='100%' height='100%' filter='url(#n)'/></svg>`;
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+  }
+  function apply(t) {
+    const key = JSON.stringify(t || null);
+    if (key === shown) return;
+    shown = key;
+    if (t && t.name) root.dataset.look = t.name; else delete root.dataset.look;
+    for (const k of DIALS) {
+      if (t && typeof t[k] === "number") root.style.setProperty("--look-" + k, (t[k] / 100).toFixed(2));
+      else root.style.removeProperty("--look-" + k);
+    }
+    const glitch = !!t && t.name === "glitch";
+    window.viewTheme.hold(glitch ? "dark" : null, "#0e0f11"); // glitch is dark only
+    if (glitch) root.style.setProperty("--look-grain", grain(t.coarse)); else root.style.removeProperty("--look-grain");
+    if (glitch && !fontAsked) {
+      fontAsked = true; // fetched only by pages that use it
+      const l = document.createElement("link");
+      l.rel = "preload"; l.as = "font"; l.type = "font/woff2"; l.crossOrigin = ""; l.href = "/assets/departure-mono.woff2";
+      document.head.append(l);
+    }
+  }
+  try { apply(JSON.parse(document.getElementById("board-data").textContent).theme); } catch {}
+  return { apply };
 })();
 </script>
 <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
@@ -221,39 +266,11 @@ header { flex-wrap: wrap; row-gap: 6px; }
   letter-spacing: .02em;
 }
 
-/* type-to-search readout */
-.find {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  min-width: 0;
-  margin-left: auto;
-  font-size: 14px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.find .q {
-  color: var(--ink);
-  font-weight: 560;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.filtering .find .q::after {
-  content: "";
-  display: inline-block;
-  width: 1.5px;
-  height: 1.05em;
-  margin-left: 2px;
-  vertical-align: -.16em;
-  background: currentColor;
-  animation: caret 1s steps(1) infinite;
-}
-@keyframes caret { 50% { opacity: 0; } }
-
-/* light / dark / system switch */
+/* light / dark / system switch, at the right end of the header */
 .theme {
   display: inline-flex;
   flex: none;
+  margin-left: auto;
   align-self: center;
   gap: 2px;
   padding: 3px;
@@ -458,10 +475,11 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
 .svc .sdetail.bad { color: var(--bad); }
 
 /* ---------- platform footer: versions of the platform's components ---------- */
-.tools { margin-top: 40px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 12.5px; color: var(--muted); opacity: .78; transition: opacity .2s ease; }
-.tools:hover, .tools:focus-within { opacity: 1; }
+.tools { margin-top: 40px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 12.5px; color: var(--muted); }
 .tools[hidden] { display: none; }
-.tools .lbl { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; margin-right: 4px; }
+/* each badge lights up on its own: hovering one leaves the others as they are */
+.tools > * { opacity: .78; transition: opacity .2s ease; }
+.tools > .badge:is(:hover, :focus-visible) { opacity: 1; }
 .tools .badge { display: inline-flex; border-radius: 7px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); line-height: 1; color: inherit; text-decoration: none; }
 .tools .badge b { font-weight: 560; padding: 5px 7px 5px 8px; color: var(--ink); opacity: .78; background: color-mix(in oklab, var(--tile-top) 80%, transparent); }
 .tools .badge span { padding: 5px 8px 5px 7px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; background: color-mix(in oklab, var(--neutral-c) 14%, transparent); }
@@ -469,6 +487,10 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
 .tools a.badge:hover span { background: color-mix(in oklab, var(--neutral-c) 24%, transparent); color: var(--ink); }
 .tools a.badge:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px; }
 .tools .toolerr { color: var(--amber-ink); }
+/* the running build of view itself, right after the title, e.g. v0.4.0-rc.10 (a1b2c3d):
+   there to look up, not to read */
+.build { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); opacity: .55; white-space: nowrap; }
+.build[hidden] { display: none; }
 
 /* ---------- network card ---------- */
 .neterr { margin: 0; font-size: 13px; line-height: 1.45; color: var(--amber-ink); }
@@ -525,7 +547,7 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
   -webkit-user-select: none;
   transition: transform .32s cubic-bezier(.2,1.4,.4,1), box-shadow .25s ease, background .25s ease, opacity .2s ease, filter .2s ease;
 }
-.tile:hover, .tile.best, .tile:focus-visible {
+.tile:hover, .tile:focus-visible {
   background: linear-gradient(180deg, color-mix(in oklab, var(--c) 9%, var(--tile-top)), color-mix(in oklab, var(--c) 3%, var(--tile)));
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--c) 50%, var(--line)), var(--tile-shadow);
 }
@@ -548,7 +570,7 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
   overflow: hidden;
   transition: transform .4s cubic-bezier(.2,1.6,.4,1);
 }
-.tile:hover .plate, .tile.best .plate { transform: scale(1.06); }
+.tile:hover .plate { transform: scale(1.06); }
 .plate img { width: 30px; height: 30px; object-fit: contain; }
 .plate.bleed img { width: 100%; height: 100%; object-fit: cover; }
 .plate.mono {
@@ -601,9 +623,6 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
   transition: opacity .2s ease;
 }
 .tile:hover .key, .tile:focus-visible .key { opacity: 1; }
-.filtering .key { display: none; }
-
-.filtering .tile.dim { opacity: .26; filter: saturate(.3); }
 
 /* a tile that just appeared after the config changed */
 @keyframes arrive { from { opacity: 0; transform: translateY(6px) scale(.97); } }
@@ -619,9 +638,103 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
 }
 .empty code { font: inherit; font-weight: 600; color: var(--ink); }
 
+/* ---------- glitch look ----------
+   The same page with the same layout and the same rounded shapes: flat tiles, thin borders,
+   a terminal font, all lowercase. It should look good first; it's not a game screen.
+   The idea is a print that's out of register: every colour is made of cyan, magenta and
+   yellow sitting slightly apart. Those three belong to the glitch and never to the page,
+   so nothing here is coloured with them. Dark only; status colours are the standard dark ones.
+   The dials come from the config as --look-shadow, --look-feel and --look-grain. */
+@font-face {
+  font-family: "Departure Mono";
+  src: url(/assets/departure-mono.woff2) format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+:root[data-look="glitch"] {
+  --C: 31 181 255;
+  --M: 255 45 149;
+  --Y: 255 230 0;
+  --bg: #0e0f11;
+  --ink: #e8e8e4;
+  --muted: #8a8d93;
+  --tile: rgb(255 255 255 / .035);
+  --tile-top: rgb(255 255 255 / .035);
+  --line: rgb(255 255 255 / .09);
+  --line-on: rgb(255 255 255 / .3);
+  --tile-shadow: 0 0 0 0 transparent;
+  --plate-line: rgb(255 255 255 / .09);
+  --neutral-c: #8a8d93;
+  --divider: rgb(255 255 255 / .1);
+  --cs: var(--look-shadow, .5);
+}
+/* Departure Mono is drawn on an 11px grid, so every size here is 11px or a multiple of
+   its half (16.5, 22, 33), which stays sharp on a 2x screen. It has one weight. */
+:root[data-look="glitch"] body {
+  font-family: "Departure Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-feature-settings: normal;
+  font-synthesis: none;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: lowercase;
+  text-shadow:
+    calc(var(--cs) * 1.6px) 0 rgb(var(--M) / calc(var(--cs) * .75)),
+    calc(var(--cs) * -1.6px) 0 rgb(var(--C) / calc(var(--cs) * .75)),
+    calc(var(--cs) * .8px) calc(var(--cs) * 1.2px) rgb(var(--Y) / calc(var(--cs) * .6));
+}
+:root[data-look="glitch"] :is(h1, .cenv, .name, .count b) { letter-spacing: 0; }
+:root[data-look="glitch"] :is(.cluster, .cenv, .notice, .panel h2, .count i, .when, .week .days, .svc, .svc .sstate, .svc .sdetail,
+  .tools, .tools .badge span, .build, .neterr, .facts, .facts small, .foot, .host, .key, .empty) { font-size: 11px; }
+:root[data-look="glitch"] :is(h1, .plate.mono) { font-size: 22px; }
+:root[data-look="glitch"] .name { font-size: 16.5px; }
+:root[data-look="glitch"] .count b { font-size: 33px; }
+:root[data-look="glitch"] :is(.tools .badge span, .build) { font-family: inherit; }
+:root[data-look="glitch"] header { position: relative; }
+
+/* the look decides light or dark, so the switch has nothing to offer */
+:root[data-look="glitch"] .theme { display: none; }
+/* no hover light and no accent colour from the icon: a hovered tile just gets a brighter frame */
+:root[data-look="glitch"] .glow { display: none; }
+:root[data-look="glitch"] :is(.tile, .panel) {
+  position: relative;
+  overflow: hidden;
+}
+:root[data-look="glitch"] .tile, :root[data-look="glitch"] .panel:not(.live) { background: var(--tile); }
+:root[data-look="glitch"] .panel.live { background: color-mix(in oklab, var(--amber) 9%, var(--tile)); }
+:root[data-look="glitch"] :is(.tile:hover, .tile:focus-visible) {
+  background: rgb(255 255 255 / .06);
+  box-shadow: inset 0 0 0 1px var(--line-on);
+}
+:root[data-look="glitch"] .tile:focus-visible { box-shadow: inset 0 0 0 1px var(--line-on), 0 0 0 2px var(--line-on); }
+/* a hint of screen: faint scanlines and slightly darker edges inside tiles and cards */
+:root[data-look="glitch"] :is(.tile, .panel)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: var(--look-feel, .3);
+  background: repeating-linear-gradient(to bottom, rgb(0 0 0 / .35) 0 1px, transparent 1px 3px);
+  box-shadow: inset 0 0 22px rgb(0 0 0 / .7);
+}
+/* icons as they are, toned down to sit in the dark palette */
+:root[data-look="glitch"] .plate {
+  box-shadow: 0 0 0 1px var(--plate-line);
+  filter: saturate(.72) brightness(.86);
+}
+:root[data-look="glitch"] .tile:hover .plate { transform: none; }
+/* frames switch hard, without a fade: hover, and the flicker during a glitch */
+:root[data-look="glitch"] .tile { transition: transform .32s cubic-bezier(.2,1.4,.4,1), opacity .2s ease, filter .2s ease; }
+:root[data-look="glitch"] .panel { transition: none; }
+/* the copy a slice glitch pushes sideways is in one colour all through */
+.gcopy * { color: inherit !important; }
+/* coarse grain over the whole page, text included: more cloth than dust */
+:root[data-look="glitch"] .ambient { z-index: 2; mix-blend-mode: overlay; }
+:root[data-look="glitch"] .ambient::after { opacity: .5; background-image: var(--look-grain); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0s !important; animation: none !important; }
-  .tile:hover .plate, .tile.best .plate { transform: none; }
+  .tile:hover .plate { transform: none; }
 }
 </style>
 </head>
@@ -630,8 +743,8 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
 <div class="wrap" id="app">
   <header>
     <h1 id="title">view</h1>
+    <span class="build" id="build" hidden></span>
     <div class="cluster" id="cluster" hidden><span class="cname" id="cname"></span><span class="cenv" id="cenv"></span></div>
-    <div class="find" id="find" aria-live="polite"><span class="q" id="q"></span><span id="hint">Type to search</span></div>
     <div class="theme" id="theme" role="group" aria-label="Color theme">
       <button type="button" data-choice="light" title="Light" aria-label="Light"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9"/></svg></button>
       <button type="button" data-choice="dark" title="Dark" aria-label="Dark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 9.6A5.6 5.6 0 0 1 6.4 2.5a5.6 5.6 0 1 0 7.1 7.1z"/></svg></button>
@@ -668,17 +781,16 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
   <footer class="tools" id="tools" aria-label="Platform versions" hidden></footer>
 </div>
 
-<script id="board-data" type="application/json">/*BOARD*/</script>
 <script>
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
   const app = $("app"), grid = $("grid"), titleEl = $("title"), notice = $("notice");
   const clusterEl = $("cluster"), cnameEl = $("cname"), cenvEl = $("cenv");
-  const glow = $("glow"), qEl = $("q"), hintEl = $("hint");
+  const glow = $("glow");
   const neutral = () => getComputedStyle(document.documentElement).getPropertyValue("--neutral-c").trim() || "hsl(220 14% 58%)";
 
-  let board, shown = "", query = "", best = -1;
+  let board, shown = "";
   try { board = JSON.parse($("board-data").textContent); } catch { board = null; }
 
   /* ---------- helpers ---------- */
@@ -782,6 +894,8 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
     const json = JSON.stringify([next.title, next.cluster, next.tiles, next.error, next.discoveryError]);
     const prev = board;
     board = next;
+    window.viewLook.apply(board.theme);
+    glitches.set(board.theme);
     tickSidebar();
     if (json === shown) return;
     const first = shown === "";
@@ -798,6 +912,10 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
     clusterEl.hidden = !name && !env;
     const where = [name, env].filter(Boolean).join(" · ");
     document.title = where ? where + " — " + titleEl.textContent : titleEl.textContent;
+
+    const buildEl = $("build");
+    buildEl.textContent = board.build ? "view " + board.build : "";
+    buildEl.hidden = !board.build;
 
     if (board.error) {
       const s = document.createElement("strong");
@@ -823,7 +941,6 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
       frag.append(li);
     }
     grid.replaceChildren(frag);
-    applyFilter();
   }
 
   /* ---------- maintenance window ---------- */
@@ -1019,7 +1136,7 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
     toolsShown = key;
     toolsEl.hidden = !t || (!t.error && !t.items.length);
     if (toolsEl.hidden) return;
-    const kids = [make("span", "lbl", "Platform")];
+    const kids = [];
     if (t.error) {
       kids.push(make("span", "toolerr", "Can't read the cluster: " + t.error));
     } else {
@@ -1036,6 +1153,19 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
     }
     toolsEl.replaceChildren(...kids);
   }
+
+  // Glitch look: the badge the mouse comes onto glitches. After that the whole row rests for
+  // 3-6 s: hovering any badge in that time, the same one or another, doesn't glitch.
+  let badgesRestUntil = 0;
+  toolsEl.addEventListener("pointerover", (e) => {
+    const badge = e.target.closest(".badge");
+    if (!badge || document.documentElement.dataset.look !== "glitch") return;
+    if (e.relatedTarget && badge.contains(e.relatedTarget)) return; // moving inside the same badge
+    const now = performance.now();
+    if (badgesRestUntil > now) return;
+    badgesRestUntil = now + 3000 + Math.random() * 3000;
+    glitches.hit("shift", badge);
+  });
 
   function tickSidebar() {
     const on = !!(board.maintenance || board.services || board.network);
@@ -1070,7 +1200,7 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
   }
   function glowOff() { glowTile = null; glowOn = false; glow.classList.remove("on"); }
   function glowRest() {
-    const t = hoverTile || (query && best >= 0 ? tiles()[best] : null) || (document.activeElement && document.activeElement.closest && document.activeElement.closest(".tile"));
+    const t = hoverTile || (document.activeElement && document.activeElement.closest && document.activeElement.closest(".tile"));
     t ? glowTo(t) : glowOff();
   }
 
@@ -1103,45 +1233,7 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
     } catch {}
   }
 
-  /* ---------- type to search ---------- */
-  function score(t, q) {
-    const n = t.name.toLowerCase();
-    if (n.startsWith(q)) return 4;
-    if (n.split(/[\s\-_.]+/).some((w) => w.startsWith(q))) return 3;
-    if (n.includes(q)) return 2;
-    if (hostOf(t.url).toLowerCase().includes(q)) return 1;
-    return 0;
-  }
-  function applyFilter() {
-    const els = tiles();
-    app.classList.toggle("filtering", !!query);
-    best = -1;
-    if (!query) {
-      els.forEach((el) => el.classList.remove("dim", "best"));
-      qEl.textContent = "";
-      hintEl.textContent = board.tiles.length ? "Type to search" : "";
-      return;
-    }
-    const q = query.toLowerCase();
-    let top = 0;
-    board.tiles.forEach((t, i) => {
-      const s = score(t, q);
-      els[i].classList.toggle("dim", !s);
-      els[i].classList.remove("best");
-      if (s > top) { top = s; best = i; }
-    });
-    qEl.textContent = query;
-    if (best >= 0) {
-      els[best].classList.add("best");
-      hintEl.textContent = "Enter opens " + board.tiles[best].name;
-      if (!hoverTile) glowTo(els[best]);
-    } else {
-      hintEl.textContent = "No match";
-      if (!hoverTile) glowOff();
-    }
-  }
-  function setQuery(q) { query = q; applyFilter(); }
-
+  /* ---------- keys 1–9 open a tile ---------- */
   function open(i, newTab) {
     const t = board.tiles[i], el = tiles()[i];
     if (!t || !el) return;
@@ -1156,27 +1248,13 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
   }
 
   document.addEventListener("keydown", (e) => {
-    if (e.isComposing) return;
-    const mod = e.ctrlKey || e.metaKey;
-    if (e.key === "Enter" && query) {
-      if (best >= 0) open(best, mod || e.shiftKey);
-      e.preventDefault();
-      return;
-    }
-    if (mod || e.altKey) return;
-    if (e.key === "Escape") { if (query) { setQuery(""); e.preventDefault(); } return; }
-    if (e.key === "Backspace") { if (query) { setQuery(query.slice(0, -1)); e.preventDefault(); } return; }
-    // 1–9 open a tile (e.code, so Shift+1 still counts as 1 on every layout)
+    if (e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
+    // e.code, so Shift+1 still counts as 1 on every layout; Shift opens the tile in a new tab
     const digit = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
-    if (!query && digit) { open(+digit[1] - 1, e.shiftKey); e.preventDefault(); return; }
-    if (e.key.length === 1 && (query || e.key.trim())) {
-      if (query.length < 40) setQuery(query + e.key);
-      e.preventDefault();
-    }
+    if (digit) { open(+digit[1] - 1, e.shiftKey); e.preventDefault(); }
   });
   addEventListener("pageshow", () => {
     tiles().forEach((el) => el.classList.remove("pressed"));
-    if (query) setQuery("");
     hoverTile = null;
     glowRest();
   });
@@ -1193,6 +1271,111 @@ a.sname:focus-visible { outline: 2px solid var(--neutral-c); outline-offset: 2px
     showTheme();
   });
   showTheme();
+
+  /* ---------- glitches (glitch look only) ----------
+     A glitch is a quick wobble in which a piece of text breaks into its cyan, magenta and
+     yellow shadows: a computer glitch, not a game effect. Two kinds, picked at random, on a
+     random piece of text. They're stepped by hand with transforms only, so nothing moves
+     the layout and the copies take no clicks or keys. They also run when the device asks
+     for reduced motion: the look is something one person switches on for themselves. */
+  const glitches = (() => {
+    const R = (a, b) => a + Math.random() * (b - a), I = (a, b) => Math.round(R(a, b));
+    const pick = (list) => list[Math.floor(Math.random() * list.length)];
+    const M = "255 45 149", C = "31 181 255", Y = "255 230 0";
+    const busy = new Set();
+    let every = 0, timer = 0, spanEnd = 0;
+
+    // heading, cluster line, the text of each tile, and the parts of each sidebar card
+    const targets = () => [titleEl, clusterEl, ...grid.querySelectorAll(".tile .meta"), ...side.querySelectorAll(".panel > :not(.gcopy)")]
+      .filter((el) => el.offsetWidth && !busy.has(el));
+
+    function frames(n, ms, step, done) {
+      let i = 0;
+      (function next() { if (i++ < n) { step(i); setTimeout(next, ms); } else done(); })();
+    }
+
+    // Colour shift, about 0.15 s: hard pixel jumps with the three colours far apart.
+    function shift(el, done) {
+      frames(5, 30, (i) => {
+        const x = I(2, 5) * (Math.random() < .5 ? -1 : 1);
+        el.style.transform = i % 2 ? `translateX(${I(-3, 3)}px)` : "none";
+        el.style.textShadow = `${x}px 0 rgb(${M} / .9), ${-x}px 0 rgb(${C} / .9), ${I(-2, 2)}px ${I(-1, 1)}px rgb(${Y} / .8)`;
+      }, () => { el.style.transform = el.style.textShadow = ""; done(); });
+    }
+
+    // Slice, about 0.3 s: a band of the text jumps sideways in one of the colours while the
+    // text dims, and the frame around it flickers faintly in cyan or yellow (never magenta).
+    function slice(el, done) {
+      const box = el.closest(".tile, .panel");
+      const copy = el.cloneNode(true);
+      copy.classList.add("gcopy");
+      copy.removeAttribute("id");
+      copy.querySelectorAll("[id]").forEach((n) => n.removeAttribute("id"));
+      copy.inert = true;
+      copy.setAttribute("aria-hidden", "true");
+      Object.assign(copy.style, {
+        position: "absolute", left: el.offsetLeft + "px", top: el.offsetTop + "px", width: el.offsetWidth + "px", height: el.offsetHeight + "px",
+        margin: 0, boxSizing: "border-box", pointerEvents: "none", zIndex: 2, textShadow: "none",
+      });
+      el.parentNode.append(copy);
+      frames(7, 45, () => {
+        const a = R(0, 80), b = R(0, 100 - a - 8);
+        copy.style.clipPath = `inset(${a}% 0 ${b}% 0)`;
+        copy.style.transform = `translateX(${R(-14, 14)}px)`;
+        copy.style.color = `rgb(${pick([M, C, Y])})`;
+        el.style.opacity = Math.random() < .3 ? ".6" : "";
+        if (box) {
+          const line = Math.random() < .5 ? `rgb(${C} / .28)` : `rgb(${Y} / .22)`;
+          box.style.setProperty("--line", line);
+          box.style.setProperty("--line-on", line);
+        }
+      }, () => {
+        copy.remove();
+        el.style.opacity = "";
+        if (box) { box.style.removeProperty("--line"); box.style.removeProperty("--line-on"); }
+        done();
+      });
+    }
+
+    function hit(kind, el) {
+      el = el || pick(targets());
+      if (!el || busy.has(el)) return;
+      busy.add(el);
+      (kind === "slice" ? slice : shift)(el, () => busy.delete(el));
+    }
+
+    // Time is cut into spans of `every`, and each span gets one glitch at a random moment
+    // in it. So there's one per span on average, but two can come right after each other
+    // or almost two spans apart: there's no rhythm to pick up. One in four is followed
+    // straight away by a second colour shift somewhere else.
+    function plan() {
+      clearTimeout(timer);
+      if (!every || document.hidden) return; // a page left open in a hidden tab does nothing
+      const now = performance.now();
+      if (spanEnd < now) spanEnd = now;
+      const at = spanEnd + R(0, every);
+      spanEnd += every;
+      timer = setTimeout(() => {
+        hit(Math.random() < .5 ? "shift" : "slice");
+        if (Math.random() < .25) setTimeout(() => hit("shift"), 90);
+        plan();
+      }, at - now);
+    }
+    document.addEventListener("visibilitychange", plan);
+
+    return {
+      hit,
+      // theme.every is in seconds; 0, or any other look, switches random glitches off
+      set(theme) {
+        const next = theme && theme.name === "glitch" ? Math.round((theme.every || 0) * 1000) : 0;
+        if (next === every) return;
+        every = next;
+        spanEnd = 0;
+        plan();
+      },
+    };
+  })();
+  window.viewGlitch = glitches; // viewGlitch.hit("shift") or .hit("slice") in the console shows one
 
   /* ---------- first paint + live updates when the config changes ---------- */
   render(board && Array.isArray(board.tiles) ? board : { title: "view", tiles: [] });

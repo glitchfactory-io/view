@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -39,6 +40,65 @@ func TestClusterConfig(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: got error %v, want one containing %q", y, err, want)
 		}
+	}
+}
+
+func TestThemeConfig(t *testing.T) {
+	glitch := Theme{Name: "glitch", Shadow: 50, Feel: 30, Coarse: 65, Every: 6}
+	ok := []struct {
+		yaml string
+		want *Theme
+	}{
+		{"title: x\n", nil},
+		{"theme: {}\n", nil},
+		{"theme:\n  name: standard\n", nil},
+		// the glitch settings are kept in place while the standard look is on
+		{"theme:\n  name: standard\n  shadow: 80\n  every: 2s\n", nil},
+		{"theme:\n  name: glitch\n", &glitch},
+		{"theme:\n  name: \" Glitch \"\n", &glitch},
+		{"theme:\n  name: glitch\n  shadow: 0\n  feel: 100\n  coarse: 10\n  every: 90s\n", &Theme{Name: "glitch", Shadow: 0, Feel: 100, Coarse: 10, Every: 90}},
+		{"theme:\n  name: glitch\n  every: 1500ms\n", &Theme{Name: "glitch", Shadow: 50, Feel: 30, Coarse: 65, Every: 1.5}},
+		{"theme:\n  name: glitch\n  every: 2m\n", &Theme{Name: "glitch", Shadow: 50, Feel: 30, Coarse: 65, Every: 120}},
+		{"theme:\n  name: glitch\n  every: 12\n", &Theme{Name: "glitch", Shadow: 50, Feel: 30, Coarse: 65, Every: 12}},
+		{"theme:\n  name: glitch\n  every: 0\n", &Theme{Name: "glitch", Shadow: 50, Feel: 30, Coarse: 65, Every: 0}},
+		{"theme:\n  name: glitch\n  every: 0s\n", &Theme{Name: "glitch", Shadow: 50, Feel: 30, Coarse: 65, Every: 0}},
+	}
+	for _, c := range ok {
+		b, err := parseConfig([]byte(c.yaml))
+		if err != nil {
+			t.Errorf("%q: unexpected error %v", c.yaml, err)
+			continue
+		}
+		if (b.Theme == nil) != (c.want == nil) || (b.Theme != nil && *b.Theme != *c.want) {
+			t.Errorf("%q: got %+v, want %+v", c.yaml, b.Theme, c.want)
+		}
+	}
+
+	bad := map[string]string{
+		"theme: glitch\n":                           "theme needs name",
+		"theme:\n  name: neon\n":                    "should be standard or glitch",
+		"theme:\n  nmae: glitch\n":                  "is not a theme setting",
+		"theme:\n  name: glitch\n  shadow: 101\n":   "shadow 101 should be between 0 and 100",
+		"theme:\n  name: glitch\n  feel: -1\n":      "feel -1 should be between 0 and 100",
+		"theme:\n  name: standard\n  coarse: 500\n": "coarse 500 should be between 0 and 100",
+		"theme:\n  name: glitch\n  every: often\n":  "every often should be a time",
+		"theme:\n  name: glitch\n  every: 200ms\n":  "between 1s and 1h",
+		"theme:\n  name: glitch\n  every: 2h\n":     "between 1s and 1h",
+		"theme:\n  name: glitch\n  every: -6s\n":    "between 1s and 1h",
+		"theme:\n  name: glitch\n  every: [1, 2]\n": "should be a time",
+		"glitch:\n  every: 6s\n":                    "is not a known setting",
+	}
+	for y, want := range bad {
+		_, err := parseConfig([]byte(y))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: got error %v, want one containing %q", y, err, want)
+		}
+	}
+
+	// the standard look leaves the board as it was before themes existed
+	b, _ := parseConfig([]byte("theme:\n  name: standard\n"))
+	if js, _ := json.Marshal(b); strings.Contains(string(js), "theme") {
+		t.Errorf("standard theme should not be sent to the page: %s", js)
 	}
 }
 

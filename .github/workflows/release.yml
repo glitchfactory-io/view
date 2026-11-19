@@ -47,6 +47,10 @@ jobs:
 
       # Image first: anyone following the chart's version range gets the new
       # chart right away, so its image has to exist by then.
+      - name: Short commit
+        id: commit
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: Image
         uses: docker/build-push-action@v7
         with:
@@ -55,6 +59,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.IMAGE }}:${{ github.ref_name }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ steps.commit.outputs.short }}
 
       - uses: azure/setup-helm@v5
       - name: Chart
