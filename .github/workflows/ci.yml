@@ -16,6 +16,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: vendor/ matches go.mod
+        run: go mod vendor && git diff --exit-code -- vendor
       - run: go vet ./...
       - run: go test ./...
 

@@ -241,8 +241,6 @@ Secrets.
 ## Using the page
 
 - Click a tile to open it. Ctrl/Cmd-click or middle-click opens it in a new tab.
-- **Type to search:** just start typing a name or address. The best match lights up; Enter opens it
-  (Cmd/Ctrl+Enter in a new tab), Esc clears.
 - Keys `1`–`9` open the first nine tiles. Add Shift to open in a new tab.
 - Light and dark follow your device's setting by default. The switch at the top right picks light, dark or system; the choice is remembered in that browser. Each tile takes its accent color from the site's own icon.
 

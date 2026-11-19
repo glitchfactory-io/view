@@ -24,6 +24,25 @@ import (
 //go:embed web
 var webFS embed.FS
 
+// Which build is running, set at build time:
+//
+//	go build -ldflags "-X main.version=v0.4.0-rc.10 -X main.commit=a1b2c3d"
+//
+// Both stay empty in a plain go build / go run, and then the page shows nothing.
+var version, commit string
+
+// buildLabel is what the page shows, e.g. "v0.4.0-rc.10 (a1b2c3d)".
+func buildLabel() string {
+	switch {
+	case version != "" && commit != "":
+		return version + " (" + commit + ")"
+	case version != "":
+		return version
+	default:
+		return commit
+	}
+}
+
 type server struct {
 	cfg   *config
 	icons *iconCache
@@ -131,6 +150,9 @@ func main() {
 	cacheDir := envOr("CACHE_DIR", "/cache")
 	addr := ":" + envOr("PORT", "8080")
 
+	if b := buildLabel(); b != "" {
+		log.Printf("view %s", b)
+	}
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		log.Printf("icon cache disabled, cannot use %s: %v", cacheDir, err)
 	}

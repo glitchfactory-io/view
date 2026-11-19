@@ -55,6 +55,16 @@ type Cluster struct {
 	Environment string `json:"environment,omitempty"` // e.g. staging
 }
 
+// Theme is the page's look. The standard look is the default and is sent as no theme at
+// all, so the page is exactly what it was before themes existed.
+type Theme struct {
+	Name   string  `json:"name"`
+	Shadow int     `json:"shadow"` // 0-100: how far the colours behind the text sit apart
+	Feel   int     `json:"feel"`   // 0-100: scanlines and darker edges inside tiles and cards
+	Coarse int     `json:"coarse"` // 0-100: how coarse the grain is
+	Every  float64 `json:"every"`  // seconds: one random glitch somewhere in each span of this length; 0 = none
+}
+
 // PlatformConfig is the platform block of the tile list. It stays on the server.
 type PlatformConfig struct {
 	Network      bool           // show the network card (network.go)
@@ -90,6 +100,7 @@ type ServiceCheck struct {
 type Board struct {
 	Title       string           `json:"title"`
 	Cluster     *Cluster         `json:"cluster,omitempty"`
+	Theme       *Theme           `json:"theme,omitempty"`
 	Tiles       []Tile           `json:"tiles"`
 	Maintenance *Maintenance     `json:"maintenance,omitempty"`
 	Error       string           `json:"error,omitempty"`
@@ -143,6 +154,14 @@ type rawCluster struct {
 	Environment string `yaml:"environment"`
 }
 
+type rawTheme struct {
+	Name   string `yaml:"name"`
+	Shadow *int   `yaml:"shadow"`
+	Feel   *int   `yaml:"feel"`
+	Coarse *int   `yaml:"coarse"`
+	Every  any    `yaml:"every"` // a time like 6s, or 0
+}
+
 type rawDiscovery struct {
 	Enabled *bool  `yaml:"enabled"`
 	Label   string `yaml:"label"`
@@ -151,6 +170,7 @@ type rawDiscovery struct {
 type rawConfig struct {
 	Title       string          `yaml:"title"`
 	Cluster     *rawCluster     `yaml:"cluster"`
+	Theme       *rawTheme       `yaml:"theme"`
 	Tiles       []rawTile       `yaml:"tiles"`
 	Maintenance *rawMaintenance `yaml:"maintenance"`
 	Platform    *rawPlatform    `yaml:"platform"`
@@ -235,6 +255,67 @@ func parseCluster(r *rawCluster) (*Cluster, error) {
 		return nil, nil
 	}
 	return c, nil
+}
+
+// parseTheme checks the theme block. The standard look gives nil. The other settings only
+// matter for the glitch look, but a value that makes no sense is refused either way, so a
+// mistake shows up when it's made and not when the theme is switched.
+func parseTheme(r *rawTheme) (*Theme, error) {
+	t := &Theme{Name: strings.ToLower(strings.TrimSpace(r.Name)), Shadow: 50, Feel: 30, Coarse: 65, Every: 6}
+	if t.Name == "" {
+		t.Name = "standard"
+	}
+	if t.Name != "standard" && t.Name != "glitch" {
+		return nil, fmt.Errorf("theme: name %q should be standard or glitch", r.Name)
+	}
+	for _, f := range []struct {
+		key string
+		in  *int
+		out *int
+	}{{"shadow", r.Shadow, &t.Shadow}, {"feel", r.Feel, &t.Feel}, {"coarse", r.Coarse, &t.Coarse}} {
+		if f.in == nil {
+			continue
+		}
+		if *f.in < 0 || *f.in > 100 {
+			return nil, fmt.Errorf("theme: %s %d should be between 0 and 100", f.key, *f.in)
+		}
+		*f.out = *f.in
+	}
+	if r.Every != nil {
+		d, ok := themeEvery(r.Every)
+		if !ok {
+			return nil, fmt.Errorf("theme: every %v should be a time between 1s and 1h, like 6s or 2m, or 0 for no random glitches", r.Every)
+		}
+		t.Every = d.Seconds()
+	}
+	if t.Name == "standard" {
+		return nil, nil
+	}
+	return t, nil
+}
+
+// themeEvery reads a time like 6s, 500ms or 2m. A bare number counts as seconds.
+func themeEvery(raw any) (time.Duration, bool) {
+	var d time.Duration
+	switch v := raw.(type) {
+	case int:
+		d = time.Duration(v) * time.Second
+	case float64:
+		d = time.Duration(v * float64(time.Second))
+	case string:
+		s := strings.TrimSpace(v)
+		if n, err := strconv.ParseFloat(s, 64); err == nil {
+			d = time.Duration(n * float64(time.Second))
+		} else if d, err = time.ParseDuration(s); err != nil {
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+	if d != 0 && (d < time.Second || d > time.Hour) {
+		return 0, false
+	}
+	return d, true
 }
 
 func parsePlatform(r *rawPlatform) (*PlatformConfig, error) {
@@ -496,8 +577,9 @@ func friendlyYAMLError(err error) string {
 	msg = strings.TrimPrefix(msg, "yaml: unmarshal errors:\n")
 	msg = strings.TrimPrefix(msg, "yaml: ")
 	msg = strings.ReplaceAll(msg, "not found in type main.rawTile", "is not a tile setting (use name, url or icon)")
-	msg = strings.ReplaceAll(msg, "not found in type main.rawConfig", "is not a known setting (use title, cluster, tiles, maintenance, platform or discovery)")
+	msg = strings.ReplaceAll(msg, "not found in type main.rawConfig", "is not a known setting (use title, cluster, theme, tiles, maintenance, platform or discovery)")
 	msg = strings.ReplaceAll(msg, "not found in type main.rawCluster", "is not a cluster setting (use name or environment)")
+	msg = strings.ReplaceAll(msg, "not found in type main.rawTheme", "is not a theme setting (use name, shadow, feel, coarse or every)")
 	msg = strings.ReplaceAll(msg, "not found in type main.rawDiscovery", "is not a discovery setting (use enabled or label)")
 	msg = strings.ReplaceAll(msg, "not found in type main.rawPlatform", "is not a platform setting (use network, certWarnDays, services or tooling)")
 	msg = strings.ReplaceAll(msg, "not found in type main.rawService", "is not a service setting (use name, url, tcp, tls, expect, proxy or link)")
@@ -511,6 +593,7 @@ func friendlyYAMLError(err error) string {
 	}
 	msg = regexp.MustCompile(`cannot unmarshal !!\w+ `+"`"+`?([^`+"`"+`]*)`+"`"+`? into main\.rawCluster`).ReplaceAllString(msg, "cluster needs name and/or environment, each on its own line below it")
 	msg = regexp.MustCompile(`cannot unmarshal !!\w+ `+"`"+`?([^`+"`"+`]*)`+"`"+`? into main\.rawMaintenance`).ReplaceAllString(msg, "maintenance needs day, from, to and timezone, each on its own line below it")
+	msg = regexp.MustCompile(`cannot unmarshal !!\w+ `+"`"+`?([^`+"`"+`]*)`+"`"+`? into main\.rawTheme`).ReplaceAllString(msg, "theme needs name on its own line below it, like name: standard")
 	lines := strings.Split(msg, "\n")
 	for i := range lines {
 		lines[i] = strings.TrimSpace(lines[i])
@@ -548,6 +631,13 @@ func parseConfig(data []byte) (Board, error) {
 			return b, err
 		}
 		b.Cluster = c
+	}
+	if rc.Theme != nil {
+		th, err := parseTheme(rc.Theme)
+		if err != nil {
+			return b, err
+		}
+		b.Theme = th
 	}
 	if len(rc.Tiles) > 500 {
 		return b, errors.New("too many tiles (500 at most)")
@@ -677,7 +767,8 @@ func (c *config) publishLocked() {
 		Network        *NetworkStatus  `json:"network,omitempty"`
 		Services       *ServicesStatus `json:"services,omitempty"`
 		Tooling        *ToolingStatus  `json:"tooling,omitempty"`
-	}{shown, c.foundErr, c.network, c.services, c.tooling})
+		Build          string          `json:"build,omitempty"` // the running build, see buildLabel
+	}{shown, c.foundErr, c.network, c.services, c.tooling, buildLabel()})
 	if bytes.Equal(snap, c.snap) {
 		return
 	}
